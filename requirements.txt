@@ -1,0 +1,12 @@
+fiona
+fnmatch
+geopandas
+gdal
+h5py
+matplotlib
+numpy
+ogr
+os
+pandas
+scipy
+shapely
