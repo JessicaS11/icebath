@@ -112,10 +112,12 @@ class BergGDF:
             rho_sw, rho_sw_err = fjord.get_sw_dens(datarow.fjord)
             H = icalcs.H_fr_frbd(datarow.DEMarray, rho_sw, self.rho_i)
             dft = icalcs.draft_fr_H(H, datarow.DEMarray)
+            # re-adjust to local 0msl reference frame
             dft = icalcs.apply_decrease_offset(dft, datarow.sl_adjust)
             self._gdf.at[datarow.Index,'filtered_draft'] = icalcs.filter_vals(dft, num_mad=3)
 
   
+# DevNote: Generalize this to also compute median, etc. for measured bathymetry where available 
     def est_wat_depths(self):
         """
         Estimate water depths based on filtered raster of iceberg pixel drafts
@@ -133,6 +135,32 @@ class BergGDF:
             self._gdf.at[datarow.Index,'depth_med'] = np.nanmedian(datarow.filtered_draft)
             self._gdf.at[datarow.Index,'depth_max'] = np.nanmax(datarow.filtered_draft)
             self._gdf.at[datarow.Index,'depth_mad'] = stats.median_absolute_deviation(datarow.filtered_draft)
+
+
+    def wat_depth_uncert(self):
+        """
+        Estimate the water depth uncertainty by propagating errors and uncertainties of density, etc.
+        A more thorough discussion of errors related to these calculations is in Scheick et al 2019, Rem. Sens.
+        """
+
+        req_cols = ['depth_med']
+        self._validate(self._gdf, req_cols)
+
+        try: self._gdf['depth_err']
+        except KeyError:
+            self._gdf['depth_err'] = float
+
+        for datarow in self._gdf.itertuples(index=True, name='Pandas'):
+            rho_sw, rho_sw_err = fjord.get_sw_dens(datarow.fjord)
+            rho_conversion, rho_conversion_err = fjord.draft_uncert_dens(rho_sw, rho_sw_err, rho_i, rho_i_err)
+            
+            med_freebd = datarow.depth_med/((rho_sw/(rho_sw-rho_i))-1)
+            med_H =  icalcs.H_fr_frbd(med_freebd, rho_sw, rho_i)
+            med_H_err = abs(med_H)*((freeboard_err/med_freebd)**2+(rho_conversion_err/rho_conversion)**2)**(0.5)
+            draft_err = ((med_H_filt_err)**2+(freeboard_err)**2)**(0.5)
+            self._gdf.at[datarow.Index, 'depth_err'] = draft_err
+   
+
 
     def get_meas_wat_depth(self, source):
         """
