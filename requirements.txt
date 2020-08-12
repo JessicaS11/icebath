@@ -2,9 +2,11 @@ fiona
 geopandas
 gdal
 h5py
+holoviews
 matplotlib
 numpy
 ogr
 pandas
 scipy
 shapely
+sklearn

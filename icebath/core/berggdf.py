@@ -117,48 +117,59 @@ class BergGDF:
             self._gdf.at[datarow.Index,'filtered_draft'] = icalcs.filter_vals(dft, num_mad=3)
 
   
-# DevNote: Generalize this to also compute median, etc. for measured bathymetry where available 
-    def est_wat_depths(self):
+    def calc_medmaxmad(self, column=''):
         """
-        Estimate water depths based on filtered raster of iceberg pixel drafts
+        Compute median, maximum, and median absolute devation from an array of values
+        specified by the string of the input column name and add columns to hold the results.
+        Input values might be from a filtered raster of iceberg pixel drafts or a series of measurements.
+        
+        Parameters
+        ---------
+        column: str, default ''
+            Column name on which to compute median, maximum, and median absolute deviation
         """
 
-        req_cols = ['filtered_draft']
-        self._validate(self._gdf, req_cols)
         
-        for key in ['depth_med','depth_max','depth_mad']:
+        req_cols = [column] # e.g. 'draft' for iceberg water depths, 'depth' for measured depths
+        self._validate(self._gdf, req_cols)
+
+        for key in [column+'_med', column+'_max', column+'_mad']:
             try: self._gdf[key]
             except KeyError:
                 self._gdf[key] = float
 
         for datarow in self._gdf.itertuples(index=True, name='Pandas'):
-            self._gdf.at[datarow.Index,'depth_med'] = np.nanmedian(datarow.filtered_draft)
-            self._gdf.at[datarow.Index,'depth_max'] = np.nanmax(datarow.filtered_draft)
-            self._gdf.at[datarow.Index,'depth_mad'] = stats.median_absolute_deviation(datarow.filtered_draft)
+            indata = datarow[self._gdf.columns.get_loc(column)+1]  #needs the +1 because an index column is added
+            self._gdf.at[datarow.Index, column+'_med'] = np.nanmedian(indata)
+            self._gdf.at[datarow.Index,column+'_max'] = np.nanmax(indata)
+            self._gdf.at[datarow.Index,column+'_mad'] = stats.median_absolute_deviation(indata, nan_policy='omit')
 
 
-    def wat_depth_uncert(self):
+    def wat_depth_uncert(self, column=''):
         """
         Estimate the water depth uncertainty by propagating errors and uncertainties of density, etc.
         A more thorough discussion of errors related to these calculations is in Scheick et al 2019, Rem. Sens.
         """
 
-        req_cols = ['depth_med']
+        req_cols = [column, 'tidal_ht_amp']
         self._validate(self._gdf, req_cols)
 
-        try: self._gdf['depth_err']
+        try: self._gdf[column+'_err']
         except KeyError:
-            self._gdf['depth_err'] = float
+            self._gdf[column+'_err'] = float
 
         for datarow in self._gdf.itertuples(index=True, name='Pandas'):
             rho_sw, rho_sw_err = fjord.get_sw_dens(datarow.fjord)
-            rho_conversion, rho_conversion_err = fjord.draft_uncert_dens(rho_sw, rho_sw_err, rho_i, rho_i_err)
+            rho_conversion, rho_conversion_err = icalcs.draft_uncert_dens(rho_sw, rho_sw_err, self.rho_i, self.rho_i_err)
             
-            med_freebd = datarow.depth_med/((rho_sw/(rho_sw-rho_i))-1)
-            med_H =  icalcs.H_fr_frbd(med_freebd, rho_sw, rho_i)
+            freeboard_err = max([abs(x) for x in datarow.tidal_ht_amp])
+
+            med_val = datarow[self._gdf.columns.get_loc(column+'_med')+1]
+            med_freebd = med_val/((rho_sw/(rho_sw-self.rho_i))-1)
+            med_H =  icalcs.H_fr_frbd(med_freebd, rho_sw, self.rho_i)
             med_H_err = abs(med_H)*((freeboard_err/med_freebd)**2+(rho_conversion_err/rho_conversion)**2)**(0.5)
-            draft_err = ((med_H_filt_err)**2+(freeboard_err)**2)**(0.5)
-            self._gdf.at[datarow.Index, 'depth_err'] = draft_err
+            err = ((med_H_err)**2+(freeboard_err)**2)**(0.5)
+            self._gdf.at[datarow.Index, column+'_err'] = err
    
 
 
