@@ -1,7 +1,7 @@
 # import rasterio
 import datetime as dt
 from pyTMD import predict_tidal_ts
-import xarray
+import xarray as xr
 
 def from_dir(path=None):
     """
@@ -40,6 +40,8 @@ def read_DEM(fn=None):
     # for now fill in an arbitrary, artificial value
     dtime = dt.datetime(2012, 8, 16, hour=10, minute=33)
     data = data.assign_coords(coords={'date-time': dtime})
+
+    return data
 
 
 def get_tidal_pred(loc=None, img_time=None):

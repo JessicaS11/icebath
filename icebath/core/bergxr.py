@@ -53,19 +53,19 @@ class BergXR:
 
     
   
-    def calc_medmaxmad(self, column=''):
-        """
-        Compute median, maximum, and median absolute devation from an array of values
-        specified by the string of the input column name and add columns to hold the results.
-        Input values might be from a filtered raster of iceberg pixel drafts or a series of measurements.
+    # def calc_medmaxmad(self, column=''):
+    #     """
+    #     Compute median, maximum, and median absolute devation from an array of values
+    #     specified by the string of the input column name and add columns to hold the results.
+    #     Input values might be from a filtered raster of iceberg pixel drafts or a series of measurements.
         
-        Parameters
-        ---------
-        column: str, default ''
-            Column name on which to compute median, maximum, and median absolute deviation
-        """
+    #     Parameters
+    #     ---------
+    #     column: str, default ''
+    #         Column name on which to compute median, maximum, and median absolute deviation
+    #     """
 
         
-        req_cols = [column] # e.g. 'draft' for iceberg water depths, 'depth' for measured depths
-        self._validate(self._gdf, req_cols)
+    #     req_cols = [column] # e.g. 'draft' for iceberg water depths, 'depth' for measured depths
+    #     self._validate(self._gdf, req_cols)
 
