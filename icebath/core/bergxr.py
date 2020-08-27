@@ -40,16 +40,24 @@ class BergXR:
     @staticmethod
     def _validate(xrds, req_dim=None, req_vars=None):
         '''
-        Make sure the xarray dataset has the correct coordinates and variables
+        Make sure the xarray dataset (or dataarray) has the correct coordinates and variables
         '''
 
-        if all([dim not in list(xrds.dims.keys()) for dim in req_dim]):
+        # if type(xrds) == dataarray
+        if all([dim not in list(xrds.dims) for dim in req_dim]):
             raise AttributeError("Required dimensions are missing")
-        if all ([var not in list(xrds.keys()) for var in req_vars.keys()]):
+        if all ([var not in xrds.name for var in req_vars.keys()]):
             raise AttributeError("Required variables are missing")
-        for key in req_vars.keys():
-            if all([dim not in list(xrds[key].dims) for dim in req_vars[key]):
-                raise AttributeError("Variables do not have all required coordinates")
+    
+        #if type(xrds) == dataset
+        # for a dataset rather than a datarray
+        # if all([dim not in list(xrds.dims.keys()) for dim in req_dim]):
+        #     raise AttributeError("Required dimensions are missing")
+        # if all ([var not in list(xrds.keys()) for var in req_vars.keys()]):
+        #     raise AttributeError("Required variables are missing")
+        # for key in req_vars.keys():
+        #     if all([dim not in list(xrds[key].dims) for dim in req_vars[key]]):
+        #         raise AttributeError("Variables do not have all required coordinates")
 
     
   
