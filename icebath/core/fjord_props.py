@@ -9,3 +9,17 @@ def get_sw_dens(fjord):
         return [rho_sw.pop(fjord), rho_sw_err.pop(fjord)]
     except KeyError:
         "The current fjord does not have a seawater density entry"
+
+
+def get_mouth_coords(fjord):
+    """
+    Get the reference x and y coordinates for the fjord mouth
+    """
+
+    x = {"JI": -312319.963189}
+    y = {"JI": -2260417.83078}
+
+    try:
+        return [x.pop(fjord), y.pop(fjord)]
+    except KeyError:
+        "The current fjord does not have a location entry"

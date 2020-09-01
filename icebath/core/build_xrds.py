@@ -1,8 +1,11 @@
 # import rasterio
 import datetime as dt
+import numpy as np
 import os
-from pyTMD import predict_tidal_ts
+from pyTMD.compute_tide_corrections import compute_tide_corrections
 import xarray as xr
+
+from icebath.core import fjord_props
 
 def from_dir(path=None):
     """
@@ -52,21 +55,28 @@ def read_DEM(fn=None):
     return darr
 
 
-def get_tidal_pred(loc=None, img_time=None):
+def get_tidal_pred(loc=None, img_time=None, model_path='/home/jovyan/pyTMD/models',
+                    model='AOTIM-5-2018', epsg=3413):
  
-    if loc==None:
-        # get the value from a lookup table I have yet to create...
-        loc = [12, 13]
+    assert loc!=None, "You must enter a location!"
+    
+    loc = fjord_props.get_mouth_coords(loc)
 
     st_time = img_time - dt.timedelta(hours=-12)
-    deltat = dt.timedelta(days=1)
+    
+    # time series for +/- 12 hours of image time, or over 24 hours, every 5 minutes
+    ts = np.arange(0, 24*60*60, 5*60)
+    xs = np.ones(len(ts))*loc[0]
+    ys = np.ones(len(ts))*loc[1]
 
+    tide_pred = compute_tide_corrections(xs,ys,ts,
+        DIRECTORY='/home/jovyan/pyTMD/models', MODEL=model,
+        EPOCH=st_time.timetuple()[0:6], TYPE='drift', TIME='utc', EPSG=epsg)
 
-    # st_time_days = st_time-dt.datetime(1992, 1, 1, hour=0, minute=0, second=0)
+    # could add a test here that tide_pred.mask is all false to make sure didn't get any land pixels
 
-    # ht = predict_tidal_ts()
-
-
+    return ts, tide_pred.data
+    
 
 
 
