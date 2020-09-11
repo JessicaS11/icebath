@@ -7,7 +7,7 @@ import numpy as np
 # import fnmatch
 import xarray as xr
 
-
+from icebath.utils import raster_ops
 
 
 @xr.register_dataset_accessor("berg")
@@ -76,4 +76,13 @@ class BergXR:
         
     #     req_cols = [column] # e.g. 'draft' for iceberg water depths, 'depth' for measured depths
     #     self._validate(self._gdf, req_cols)
+
+
+    def get_icebergs(xrds, req_dim=None, req_vars=None):
+        '''
+        Get iceberg polygons for each DEM in the dataset
+        '''
+
+        
+
 
