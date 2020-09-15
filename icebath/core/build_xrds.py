@@ -4,20 +4,26 @@ import numpy as np
 import os
 from pyTMD.compute_tide_corrections import compute_tide_corrections
 import xarray as xr
+import warnings
 
 from icebath.core import fjord_props
 
-def from_dir(path=None):
+def xrds_from_dir(path=None):
     """
-    Builds an XArray dataset of DEMs for finding icebergs when passed a path to a directory"
+    Builds an XArray dataarray of DEMs for finding icebergs when passed a path to a directory"
     """
-    
+    warnings.warn("This function currently assumes a constant grid and EPSG for all input files")
+
     files = [f for f in os.listdir(path) if f.endswith('.tif')]
 
+    i=0
+    darrays = list(np.zeros(len(files)))
     for f in files:
-        data = read_DEM(f)
-        # do the rest of the computations here...
-    print("a work in progress")
+        darrays[i] = read_DEM(path+f)
+        i = i + 1
+
+    darr = xr.combine_nested(darrays, concat_dim=['dtime'])
+    return darr
 
 
 def read_DEM(fn=None):
@@ -32,7 +38,9 @@ def read_DEM(fn=None):
     # we rename it and remove the band as a coordinate, since our DEM only has one dimension
     # squeeze removes dimensions of length 0 or 1, in this case our 'band'
     # Then, drop('band') actually removes the 'band' dimension from the Dataset
-    darr = darr.rename('elevation').squeeze().drop('band')
+    # darr = darr.rename('elevation').squeeze().drop('band')
+    darr = darr.rename('elevation')
+    darr = darr.rename({'band':'dtime'})
  
     # if we wanted to instead convert it to a dataset
     # attr = darr.attrs
@@ -45,12 +53,12 @@ def read_DEM(fn=None):
     # mask out the nodata values, since the nodatavals attribute is wrong
     darr = darr.where(darr != -9999.)
 
-    # add time (right now as an attribute, since we can't spatially align values to make it a dim)
-    # dtime = #get this from the filename or a lookup table...
+    # add time as a dimension
     # for now fill in an arbitrary, artificial value
     dtime = dt.datetime(2012, 8, 16, hour=10, minute=33)
-    darr.attrs['date-time'] = dtime
+    # darr.attrs['date-time'] = dtime
     # darr = darr.assign_coords(coords={'date-time': dtime})
+    darr['dtime'] = [dtime]
 
     return darr
 

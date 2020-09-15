@@ -78,7 +78,7 @@ class BergXR:
     #     self._validate(self._gdf, req_cols)
 
 
-    def get_icebergs(xrds, req_dim=None, req_vars=None):
+    def get_icebergs(xrds, req_dim=None, req_vars=None, threshold=None):
         '''
         Get iceberg polygons for each DEM in the dataset
         '''
