@@ -6,8 +6,12 @@ def poly_from_thresh(x,y,elev,threshold):
     Threshold a raster dataset and return all closed polygons.
 
     Function based on Mike Wood's iceberg_outlines function
+
+    Parameters
+    ----------
     '''
 
+    
     X,Y = np.meshgrid(x,y)
     fig = plt.figure()
     cs = plt.contour(X, Y, elev, 'k-', levels=[threshold])

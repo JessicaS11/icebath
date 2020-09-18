@@ -1,5 +1,10 @@
+import datetime as dt
+import holoviews as hv
 import numpy as np
 import scipy.stats as stats
+
+from icebath.core import fjord_props
+from pyTMD.compute_tide_corrections import compute_tide_corrections
 
 def H_fr_frbd(freeboard, rho_sw, rho_i):
     """
@@ -50,5 +55,42 @@ def filter_vals(input, num_mad=3):
     input[test_equiv_bool] = np.nan
 
     return input
+
+def predict_tides(loc=None, img_time=None, model_path=None,
+                    model=None, epsg=None, plot=True):
+    
+        assert loc!=None, "You must enter a location!"
+        
+        loc = fjord_props.get_mouth_coords(loc)
+        # st_time = img_time - dt.timedelta(hours=-12)
+        st_time = img_time - np.timedelta64(-12,'h')
+        
+        # time series for +/- 12 hours of image time, or over 24 hours, every 5 minutes
+        ts = np.arange(0, 24*60*60, 5*60)
+        xs = np.ones(len(ts))*loc[0]
+        ys = np.ones(len(ts))*loc[1]
+
+        # convert from numpy datetime64 to dt.datetime for pyTMD
+        unix_epoch = np.datetime64(0, 's')
+        one_second = np.timedelta64(1, 's')
+        seconds_since_epoch = (st_time - unix_epoch) / one_second
+        epoch = dt.datetime.utcfromtimestamp(seconds_since_epoch).timetuple()[0:6]
+
+        tide_pred = compute_tide_corrections(xs,ys,ts,
+            DIRECTORY='/home/jovyan/pyTMD/models', MODEL=model,
+            EPOCH=epoch, TYPE='drift', TIME='utc', EPSG=epsg)
+
+        # could add a test here that tide_pred.mask is all false to make sure didn't get any land pixels
+
+        tidal_ht=tide_pred.data
+        if plot==True:
+            tidx = list(ts).index(dt.timedelta(hours=12).seconds)
+            plot_tides = np.array([[ts[i], tidal_ht[i]] for i in range(0,len(ts))])
+            tides = hv.Scatter(plot_tides, kdims='time',vdims='tidal height')
+            imgtime = hv.Scatter((ts[tidx], tidal_ht[tidx]))
+            return ts, tidal_ht, tides*imgtime
+        
+        else:
+            return ts, tidal_ht
 
 

@@ -2,7 +2,7 @@
 import datetime as dt
 import numpy as np
 import os
-from pyTMD.compute_tide_corrections import compute_tide_corrections
+import pandas as pd
 import xarray as xr
 import warnings
 
@@ -10,7 +10,7 @@ from icebath.core import fjord_props
 
 def xrds_from_dir(path=None):
     """
-    Builds an XArray dataarray of DEMs for finding icebergs when passed a path to a directory"
+    Builds an XArray dataset of DEMs for finding icebergs when passed a path to a directory"
     """
     warnings.warn("This function currently assumes a constant grid and EPSG for all input files")
 
@@ -18,12 +18,26 @@ def xrds_from_dir(path=None):
 
     i=0
     darrays = list(np.zeros(len(files)))
+    dtimes = list(np.zeros(len(files)))
     for f in files:
-        darrays[i] = read_DEM(path+f)
+        darrays[i], dtimes[i] = read_DEM(path+f)
+        dtimes[i] = dtimes[i] + (i * dt.timedelta(hours=12))
+        # If need to set time on dataarray directly, must use numpy timedelta instead
+        # ds['dtime'] = [ds.dtime.values[0], ds.dtime.values[1]+np.timedelta64(12,'h')]
         i = i + 1
 
-    darr = xr.combine_nested(darrays, concat_dim=['dtime'])
-    return darr
+    # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
+    darr = xr.concat(darrays, dim=pd.Index(dtimes, name='dtime'))#, 
+                    # coords=['x','y'], join='outer')
+
+    # convert to dataset with elevation as a variable
+    attr = darr.attrs
+    ds = darr.to_dataset()
+    ds.attrs = attr
+    attr=None
+    # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
+    # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
+    return ds
 
 
 def read_DEM(fn=None):
@@ -38,9 +52,8 @@ def read_DEM(fn=None):
     # we rename it and remove the band as a coordinate, since our DEM only has one dimension
     # squeeze removes dimensions of length 0 or 1, in this case our 'band'
     # Then, drop('band') actually removes the 'band' dimension from the Dataset
-    # darr = darr.rename('elevation').squeeze().drop('band')
-    darr = darr.rename('elevation')
-    darr = darr.rename({'band':'dtime'})
+    darr = darr.rename('elevation').squeeze().drop('band')
+    # darr = darr.rename({'band':'dtime'})
  
     # if we wanted to instead convert it to a dataset
     # attr = darr.attrs
@@ -58,16 +71,16 @@ def read_DEM(fn=None):
     dtime = dt.datetime(2012, 8, 16, hour=10, minute=33)
     # darr.attrs['date-time'] = dtime
     # darr = darr.assign_coords(coords={'date-time': dtime})
-    darr['dtime'] = [dtime]
+    # darr['dtime'] = [dtime]
 
-    return darr
+    return darr, dtime
 
 
 def get_tidal_pred(loc=None, img_time=None, model_path='/home/jovyan/pyTMD/models',
                     model='AOTIM-5-2018', epsg=3413):
  
     assert loc!=None, "You must enter a location!"
-    
+
     loc = fjord_props.get_mouth_coords(loc)
 
     st_time = img_time - dt.timedelta(hours=-12)

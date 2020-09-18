@@ -27,7 +27,7 @@ Columns ultimately used/needed:
 """
 
 
-@pd.api.extensions.register_dataframe_accessor("berg")
+@pd.api.extensions.register_dataframe_accessor("berggdf")
 class BergGDF:
     """
     An extension for a pandas dataframe that brings in an iceberg per row from the data source and 
