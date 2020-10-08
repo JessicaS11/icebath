@@ -57,7 +57,7 @@ def filter_vals(input, num_mad=3):
     return input
 
 def predict_tides(loc=None, img_time=None, model_path=None,
-                    model=None, epsg=None, plot=True):
+                    model=None, epsg=None, plot=False):
     
         assert loc!=None, "You must enter a location!"
         
@@ -77,7 +77,7 @@ def predict_tides(loc=None, img_time=None, model_path=None,
         epoch = dt.datetime.utcfromtimestamp(seconds_since_epoch).timetuple()[0:6]
 
         tide_pred = compute_tide_corrections(xs,ys,ts,
-            DIRECTORY='/home/jovyan/pyTMD/models', MODEL=model,
+            DIRECTORY=model_path, MODEL=model,
             EPOCH=epoch, TYPE='drift', TIME='utc', EPSG=epsg)
 
         # could add a test here that tide_pred.mask is all false to make sure didn't get any land pixels
@@ -91,6 +91,6 @@ def predict_tides(loc=None, img_time=None, model_path=None,
             return ts, tidal_ht, tides*imgtime
         
         else:
-            return ts, tidal_ht
+            return ts, tidal_ht, None
 
 

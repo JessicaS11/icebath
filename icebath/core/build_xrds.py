@@ -76,31 +76,6 @@ def read_DEM(fn=None):
     return darr, dtime
 
 
-def get_tidal_pred(loc=None, img_time=None, model_path='/home/jovyan/pyTMD/models',
-                    model='AOTIM-5-2018', epsg=3413):
- 
-    assert loc!=None, "You must enter a location!"
-
-    loc = fjord_props.get_mouth_coords(loc)
-
-    st_time = img_time - dt.timedelta(hours=-12)
-    
-    # time series for +/- 12 hours of image time, or over 24 hours, every 5 minutes
-    ts = np.arange(0, 24*60*60, 5*60)
-    xs = np.ones(len(ts))*loc[0]
-    ys = np.ones(len(ts))*loc[1]
-
-    tide_pred = compute_tide_corrections(xs,ys,ts,
-        DIRECTORY='/home/jovyan/pyTMD/models', MODEL=model,
-        EPOCH=st_time.timetuple()[0:6], TYPE='drift', TIME='utc', EPSG=epsg)
-
-    # could add a test here that tide_pred.mask is all false to make sure didn't get any land pixels
-
-    return ts, tide_pred.data
-    
-
-
-
 def add_to_xrds(xrds, add_xr, **kwargs):
     """
     adds the XArray dataarray or dataset to the existing dataset

@@ -83,35 +83,63 @@ class BergXR:
     #     self._validate(self._gdf, req_cols)
 
 
-    def get_tidal_pred(self, req_dim=['dtime'], req_vars=None,
-                        loc=None, **kwargs):
-    
-        assert loc!=None, "You must enter a location!"
+    def tidal_corr(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']},
+                        loc=None): #, **kwargs):
+        """
+        Gets tidal predictions for the image date/time in the fjord of interest,
+        then applies the tidal correction to the elevation field. The dataset
+        gets a keyword added to the "offsets" attribute, and time dependent variables
+        for the tidal offset, tidal max, and tidal min are added. If you want to model
+        tides and see output plots, see fl_ice_calcs.predict_tides.
+        """
+
+        print("Note that tide model, model location, and epsg are hard coded in!")
+
+        try:
+            values = (self._xrds.attrs['offset_names'])
+            assert 'tidal_corr' not in values, "You've already applied a tidal correction!"
+            values = list([values])+ ['tidal_corr']
+        except KeyError:
+            self._xrds.attrs['offset_names'] = ()
+            values = ('tidal_corr')
+        
         self._validate(self, req_dim, req_vars)
         
         # kwargs: model_path='/home/jovyan/pyTMD/models',
         #                 **model='AOTIM-5-2018', **epsg=3413
-
-
-        loc = fjord_props.get_mouth_coords(loc)
-
-        i=0
-        tide_arr = np.zeros(len(self._xrds.dtime.values))
-        for t in xrds.dtime.values:
-            time, tidal_ht = icalcs.predict_tides(loc='JI',img_time=t, 
-                                                    model_path='/home/jovyan/pyTMD/models',
-                                                    model='AOTIM-5-2018', epsg=3413, plot=False)
-            
-            tidx = list(t).index(dt.timedelta(hours=12).seconds)
-            vals = [tidal_ht[tidx], np.min(tidal_ht), np.max(tidal_ht)]
-            tide_arr[i] = vals
-            i = i+1
         
-        self._xrds = self._xrds.assign(tides=('dtime',tide_arr)) # this will throw an error because tide_arr elements each have three elements
-        self._xrds=self._xrds.tides.attrs({'value_key':'tidal_ht_corr(m), tide_min(m),tide_max(m)'}) 
+        self._xrds = self._xrds.groupby('dtime', squeeze=False).apply(self._tidal_corr_wrapper, args=(loc))
 
-        # gb= self._xrds.groupby('dtime')
-        # .apply(icalcs.predict_tides, plot=False)
+        self._xrds.attrs['offset_names'] = values
+
+        return self._xrds     
+
+
+    def _tidal_corr_wrapper(self, gb, loc, **kwargs):
+        """
+        XArray wrapper for the fl_ice_calcs.predict_tides function to be able to use it with
+        `.groupby().apply()` to get and apply tidal corrections
+        
+        Parameters
+        ----------
+        gb : groupby object
+            Must contain the fields ...
+        """  
+        
+        time, tidal_ht, plots = icalcs.predict_tides(loc, 
+                                                    img_time=gb.dtime.values, 
+                                                    model_path='/home/jovyan/pyTMD/models', 
+                                                    model='AOTIM-5-2018', 
+                                                    epsg=3413)
+        tidx = list(time).index(np.timedelta64(12, 'h').item().total_seconds())
+        vals = [tidal_ht[tidx], np.min(tidal_ht), np.max(tidal_ht)]
+
+        gb['elevation'] = gb.elevation - vals[0]  #check that it is subtract and not add!!!
+        gb = gb.assign(tidal_corr = ('dtime', [vals[0]]), 
+                        min_tidal_ht = ('dtime', [vals[1]]), 
+                        max_tidal_ht = ('dtime', [vals[2]]))
+
+        return gb
 
 
     def get_icebergs(self, req_dim=['dtime','x','y'], 
@@ -148,7 +176,7 @@ class BergXR:
         elev = gb.elevation.isel(dtime=0)
         
         polys = raster_ops.poly_from_thresh(x,y,elev,gb.attrs['berg_threshold'])
-        bergs=pd.Series({'bergs':[polys]}, dtype='object')
+        bergs=pd.Series({'bergs':polys}, dtype='object')
 
         return gb.assign(berg_outlines=('dtime',bergs))
 
