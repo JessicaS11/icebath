@@ -24,4 +24,4 @@ def poly_from_thresh(x,y,elev,threshold):
             polygons.append(polygon)
     plt.close(fig)
 
-    return(polygons)
+    return polygons
