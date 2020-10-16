@@ -58,7 +58,7 @@ def gdf_of_bergs(onedem):
 
 
     print('add crs to gdf')
-    temp_berg_df = gpd.GeoDataFrame({"DEM_freeboards":values, 'sl_adjust':sl_adj, 'berg_poly':berg_poly}, geometry='berg_poly')
+    temp_berg_df = gpd.GeoDataFrame({"DEMarray":values, 'sl_adjust':sl_adj, 'berg_poly':berg_poly}, geometry='berg_poly')
 
     fjord='JI'
     # add values that are same for all icebergs in DEM

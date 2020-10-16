@@ -68,14 +68,6 @@ class BergGDF:
         if all([col not in gdf.columns.tolist() for col in req_cols]):
             raise AttributeError("Required columns are missing")
 
-
-    def add_berg(self):
-        """
-        Add icebergs to the dataframe, where each row is one iceberg
-        """
-
-
-        print('not yet implemented')
     
     
     # Create a generalized version of itertuples that will do the row-wise calculations (if possible)
@@ -152,7 +144,7 @@ class BergGDF:
         A more thorough discussion of errors related to these calculations is in Scheick et al 2019, Rem. Sens.
         """
 
-        req_cols = [column, 'tidal_ht_amp']
+        req_cols = [column, 'tidal_ht_min', 'tidal_ht_max']
         self._validate(self._gdf, req_cols)
 
         try: self._gdf[column+'_err']
@@ -163,7 +155,7 @@ class BergGDF:
             rho_sw, rho_sw_err = fjord.get_sw_dens(datarow.fjord)
             rho_conversion, rho_conversion_err = icalcs.draft_uncert_dens(rho_sw, rho_sw_err, self.rho_i, self.rho_i_err)
             
-            freeboard_err = max([abs(x) for x in datarow.tidal_ht_amp])
+            freeboard_err = max([abs(x) for x in [datarow.tidal_ht_min, datarow.tidal_ht_max]])
 
             med_val = datarow[self._gdf.columns.get_loc(column+'_med')+1]
             med_freebd = med_val/((rho_sw/(rho_sw-self.rho_i))-1)

@@ -1,8 +1,8 @@
-# import rasterio
 import datetime as dt
 import numpy as np
 import os
 import pandas as pd
+import rasterio.transform
 import xarray as xr
 import warnings
 
@@ -21,14 +21,18 @@ def xrds_from_dir(path=None):
     dtimes = list(np.zeros(len(files)))
     for f in files:
         darrays[i], dtimes[i] = read_DEM(path+f)
-        dtimes[i] = dtimes[i] + (i * dt.timedelta(hours=12))
-        # If need to set time on dataarray directly, must use numpy timedelta instead
-        # ds['dtime'] = [ds.dtime.values[0], ds.dtime.values[1]+np.timedelta64(12,'h')]
         i = i + 1
+
+    print('NOTE: currently dates and times are hard-coded in. Need to automate this in read_DEM still')
+    # If need to set time on dataarray directly, must use numpy timedelta instead
+    # ds['dtime'] = [ds.dtime.values[0], ds.dtime.values[1]+np.timedelta64(12,'h')]
+    dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
+    dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
 
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
     darr = xr.concat(darrays, dim=pd.Index(dtimes, name='dtime'))#, 
                     # coords=['x','y'], join='outer')
+                    # combine_attrs='no_conflicts' # must only be in newest version of xarray
 
     # convert to dataset with elevation as a variable
     attr = darr.attrs
@@ -37,6 +41,16 @@ def xrds_from_dir(path=None):
     attr=None
     # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
     # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
+    
+    # create affine transform for concatted dataset
+    print('Please note the transform is computed assuming a coordinate reference system\
+ where x(min) is west and y(min) is south')
+    # inputs: west, south, east, north, width, height
+    transform = rasterio.transform.from_bounds(ds.x.min().item()-0.5*ds.attrs['res'][0], ds.y.min().item()-0.5*ds.attrs['res'][1], 
+                                             ds.x.max().item()+0.5*ds.attrs['res'][0], ds.y.max().item()+0.5*ds.attrs['res'][1], 
+                                             len(ds.x), len(ds.y))
+    ds.attrs['transform'] = transform
+    
     return ds
 
 
@@ -72,6 +86,7 @@ def read_DEM(fn=None):
     # darr.attrs['date-time'] = dtime
     # darr = darr.assign_coords(coords={'date-time': dtime})
     # darr['dtime'] = [dtime]
+
 
     return darr, dtime
 

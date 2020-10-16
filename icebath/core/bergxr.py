@@ -1,3 +1,4 @@
+import geopandas as gpd
 import pandas as pd
 import numpy as np
 # import scipy.io as spio
@@ -5,6 +6,7 @@ import numpy as np
 # import ogr
 # import os
 # import fnmatch
+import rasterio.features
 import xarray as xr
 
 from icebath.utils import raster_ops
@@ -81,6 +83,40 @@ class BergXR:
         
     #     req_cols = [column] # e.g. 'draft' for iceberg water depths, 'depth' for measured depths
     #     self._validate(self._gdf, req_cols)
+
+    def get_mask(self, req_dim=['x','y'], req_vars=None, 
+                    name=None,
+                    shpfile='/home/jovyan/icebath/notebooks/supporting_docs/Land_region.shp'):
+        """
+        Get a shapefile of land (or area of interest) boundaries and add to the dataset
+        as a mask layer that matches the extent and x/y coordinates.
+        """
+        self._validate(self, req_dim)
+
+        #read in shapefile
+        shpfl = gpd.read_file(shpfile)
+
+        #confirm and correct projection if needed
+        shpfl = shpfl.to_crs(self._xrds.attrs['crs'])
+
+        mask = rasterio.features.geometry_mask(shpfl.geometry,
+                                         out_shape = (len(self._xrds.y), len(self._xrds.x)),
+                                         transform= self._xrds.attrs['transform'],
+                                         invert=False)
+        # print(np.shape(landmsk))
+        # plt.imshow(landmsk)
+
+        # check for negative transform values. If true, then flip along the appropriate x/y coordinates before putting into xarray dataset
+        flipax=[]
+        if self._xrds.attrs['transform'][0] < 0:
+            flipax.append(1)
+        if self._xrds.attrs['transform'][4] < 0:
+            flipax.append(0)
+
+        mask = xr.DataArray(np.flip(mask, axis=flipax), coords={'y':self._xrds.y, 'x':self._xrds.x}, dims=['y','x'])
+        self._xrds.coords[name] = mask
+
+        return self._xrds
 
 
     def tidal_corr(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']},
