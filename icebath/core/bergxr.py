@@ -170,7 +170,7 @@ class BergXR:
         tidx = list(time).index(np.timedelta64(12, 'h').item().total_seconds())
         vals = [tidal_ht[tidx], np.min(tidal_ht), np.max(tidal_ht)]
 
-        gb['elevation'] = gb.elevation - vals[0]  #check that it is subtract and not add!!!
+        gb['elevation'] = gb.elevation + vals[0]
         gb = gb.assign(tidal_corr = ('dtime', [vals[0]]), 
                         min_tidal_ht = ('dtime', [vals[1]]), 
                         max_tidal_ht = ('dtime', [vals[2]]))
