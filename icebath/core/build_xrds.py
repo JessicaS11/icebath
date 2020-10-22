@@ -20,6 +20,7 @@ def xrds_from_dir(path=None):
     darrays = list(np.zeros(len(files)))
     dtimes = list(np.zeros(len(files)))
     for f in files:
+        print(f)
         darrays[i], dtimes[i] = read_DEM(path+f)
         i = i + 1
 

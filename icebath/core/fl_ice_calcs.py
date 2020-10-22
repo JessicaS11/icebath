@@ -74,6 +74,8 @@ def predict_tides(loc=None, img_time=None, model_path=None,
         unix_epoch = np.datetime64(0, 's')
         one_second = np.timedelta64(1, 's')
         seconds_since_epoch = (st_time - unix_epoch) / one_second
+        print(seconds_since_epoch)
+        print(dt.datetime.utcfromtimestamp(seconds_since_epoch))
         epoch = dt.datetime.utcfromtimestamp(seconds_since_epoch).timetuple()[0:6]
 
         tide_pred = compute_tide_corrections(xs,ys,ts,

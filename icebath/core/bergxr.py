@@ -7,6 +7,7 @@ import numpy as np
 # import os
 # import fnmatch
 import rasterio.features
+from shapely.ops import unary_union
 import xarray as xr
 
 from icebath.utils import raster_ops
@@ -115,6 +116,8 @@ class BergXR:
 
         mask = xr.DataArray(np.flip(mask, axis=flipax), coords={'y':self._xrds.y, 'x':self._xrds.x}, dims=['y','x'])
         self._xrds.coords[name] = mask
+        self._xrds.attrs[name] = unary_union(shpfl.geometry) #[shpfl.geometry.exterior[row_id].coords for row_id in range(shpfl.shape[0])])
+        # self._xrds.attrs[name] = [list(shpfl.geometry.exterior[row_id].coords) for row_id in range(shpfl.shape[0])]
 
         return self._xrds
 
@@ -199,7 +202,10 @@ class BergXR:
     def _poly_from_thresh_wrapper(self,gb):
         """
         XArray wrapper for the raster_ops.poly_from_thresh function to be able to use it with
-        `.groupby().apply()`
+        `.groupby().apply()`. Filters polygons returned by raster_ops.poly_from_thresh to remove
+        those adjacent to land or too small (e.g. only a few pixels)
+
+        Note all of these operations assume that all inputs are in the same crs
         
         Parameters
         ----------
@@ -211,7 +217,33 @@ class BergXR:
         y = gb.y
         elev = gb.elevation.isel(dtime=0)
         
-        polys = raster_ops.poly_from_thresh(x,y,elev,gb.attrs['berg_threshold'])
+        polys = raster_ops.poly_from_thresh(x,y,elev,gb.attrs['berg_threshold'], gb.attrs['land_mask'])
+        
+        # generalize this to search for any _mask attribute...
+        try: mask_path = gb.attrs['land_mask']
+        except:
+            KeyError
+        
+        try:
+            res = gb.attrs['res']
+            area = res[0]*res[1]
+        except:
+            KeyError
+        
+        # DevGoal: probably some of this should check crs and be done at another stage of processing...
+        for poly in polys:
+            print(type(poly))
+            print(poly)
+
+            # remove the polygon if it's too small (e.g. one pixel)
+            # if area:
+            #     print('area')
+
+            # # remove the polygon if it is adjacent to land
+            # if mask_path:
+            #     if poly.intersects_path
+
+        
         bergs=pd.Series({'bergs':polys}, dtype='object')
 
         return gb.assign(berg_outlines=('dtime',bergs))
