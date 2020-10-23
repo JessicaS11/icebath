@@ -12,9 +12,11 @@ def xarray_to_gdf(xr):
     """
     Takes an xarray DataSet and generates a geodataframe of icebergs from the DEMs
     """
-
+    print('marker1')
     berg_gdf = gpd.GeoDataFrame(data=None)
+    print(xr['dtime'])
     for num in range(0, len(xr['dtime'])):
+        print('marker2')
         temp_berg_df = gdf_of_bergs(xr.isel({'dtime':num}))
         print(xr['dtime'].isel({'dtime':num}))
         berg_gdf = berg_gdf.append(temp_berg_df, ignore_index=True)
@@ -37,8 +39,9 @@ def gdf_of_bergs(onedem):
     i=0
     for i in range(0, 5):#len(bergs)):
         #store as a polygon to turn into a geopandas geometry and extract only exterior coordinates (i.e. no holes)
-        berg_poly[i] = Polygon(bergs[i]).exterior.coords
-        # print(berg_poly[i])
+        berg_poly[i] = Polygon(bergs[i])#.exterior.coords
+        print(berg_poly[i])
+        print(type(berg_poly[i]))
         
         #get the elevation values for the pixels within the iceberg
         # bounds: (minx, miny, maxx, maxy)

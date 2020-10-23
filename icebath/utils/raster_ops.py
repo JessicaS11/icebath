@@ -32,6 +32,7 @@ def poly_from_thresh(x,y,elev,threshold):
     # https://gis.stackexchange.com/questions/99917/converting-matplotlib-contour-objects-to-shapely-objects
     # for pi in range(len(p)):
     #     polygon = p[pi].vertices
+    # It is also recommended to now use scikit-image for contour finding (skimage.measure.find_contours)
 
     for contour_path in p: 
         # The first polygon in the path is the main one, the following ones are "holes"
