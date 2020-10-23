@@ -7,6 +7,8 @@ import numpy as np
 # import os
 # import fnmatch
 import rasterio.features
+from shapely.geometry import box
+from shapely.geometry import Polygon as shpPolygon
 from shapely.ops import unary_union
 import xarray as xr
 
@@ -116,10 +118,17 @@ class BergXR:
 
         mask = xr.DataArray(np.flip(mask, axis=flipax), coords={'y':self._xrds.y, 'x':self._xrds.x}, dims=['y','x'])
         self._xrds.coords[name] = mask
-        self._xrds.attrs[name] = unary_union(shpfl.geometry) #[shpfl.geometry.exterior[row_id].coords for row_id in range(shpfl.shape[0])])
+        
+        
+        # clip original shapefile to XArray extent plus a half-pixel buffer
+        clipped_shpfl = gpd.clip(shpfl, box(self._xrds.x.min().item()-0.5*self._xrds.attrs['res'][0],
+                                            self._xrds.y.min().item()-0.5*self._xrds.attrs['res'][1], 
+                                            self._xrds.x.max().item()+0.5*self._xrds.attrs['res'][0], 
+                                            self._xrds.y.max().item()+0.5*self._xrds.attrs['res'][1]))
+        self._xrds.attrs[name] = unary_union(clipped_shpfl.geometry) #[shpfl.geometry.exterior[row_id].coords for row_id in range(shpfl.shape[0])])
         # self._xrds.attrs[name] = [list(shpfl.geometry.exterior[row_id].coords) for row_id in range(shpfl.shape[0])]
 
-        return self._xrds
+        # return self._xrds
 
 
     def tidal_corr(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']},
@@ -181,6 +190,10 @@ class BergXR:
         return gb
 
 
+    # DevGoal: A big way to improve this code (efficiency) would be to only iterate through the icebergs 
+    # (and convert them to polygons) once, rather than multiple times in different places (_get_icebergs_wrapper and raster_ops.threshold
+    # and build_gdf)
+    # The challenge is what datatype to keep them stored as (Polygon vs array)
     def get_icebergs(self, req_dim=['dtime','x','y'], 
                     req_vars={'elevation':['x','y','dtime']}, threshold=None):
         '''
@@ -194,12 +207,11 @@ class BergXR:
         else:
             print("Remember to set a desired threshold!")
 
-        self._xrds=self._xrds.groupby('dtime', squeeze=False).apply(self._poly_from_thresh_wrapper)
-        # print(self._xrds)
+        self._xrds=self._xrds.groupby('dtime', squeeze=False).apply(self._get_icebergs_wrapper)
 
         return self._xrds
 
-    def _poly_from_thresh_wrapper(self,gb):
+    def _get_icebergs_wrapper(self,gb):
         """
         XArray wrapper for the raster_ops.poly_from_thresh function to be able to use it with
         `.groupby().apply()`. Filters polygons returned by raster_ops.poly_from_thresh to remove
@@ -217,10 +229,10 @@ class BergXR:
         y = gb.y
         elev = gb.elevation.isel(dtime=0)
         
-        polys = raster_ops.poly_from_thresh(x,y,elev,gb.attrs['berg_threshold'], gb.attrs['land_mask'])
-        
+        polys = raster_ops.poly_from_thresh(x,y,elev,gb.attrs['berg_threshold'])
+
         # generalize this to search for any _mask attribute...
-        try: mask_path = gb.attrs['land_mask']
+        try: mask_poly = gb.attrs['land_mask']
         except:
             KeyError
         
@@ -231,20 +243,30 @@ class BergXR:
             KeyError
         
         # DevGoal: probably some of this should check crs and be done at another stage of processing...
-        for poly in polys:
-            print(type(poly))
-            print(poly)
+        if mask_poly or area:
+            filtered_polys = []
+            for polyarr in polys:
+                poly = shpPolygon(polyarr)
 
-            # remove the polygon if it's too small (e.g. one pixel)
-            # if area:
-            #     print('area')
+                # remove the polygon if it is adjacent to land
+                if mask_poly:
+                    if poly.intersects(mask_poly):
+                        # print('polygon intersects land')
+                        continue
 
-            # # remove the polygon if it is adjacent to land
-            # if mask_path:
-            #     if poly.intersects_path
-
+                # remove the polygon if it's too small (e.g. one pixel)
+                if area:
+                    if poly.area < area:
+                        # print('polygon too small')
+                        continue
+                
+                filtered_polys.append(polyarr)
+                
+        else:
+            filtered_polys=polys
+        # print(len(filtered_polys))
         
-        bergs=pd.Series({'bergs':polys}, dtype='object')
+        bergs=pd.Series({'bergs':filtered_polys}, dtype='object')
 
         return gb.assign(berg_outlines=('dtime',bergs))
 
