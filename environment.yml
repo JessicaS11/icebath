@@ -1,0 +1,24 @@
+name: icebath
+channels:
+  - conda-forge
+dependencies:
+  - h5py
+  - holoviews
+  - matplotlib
+  - numpy
+  - pandas
+  - python
+  - scipy
+  - sklearn
+  - xarray
+
+  - fiona
+  - geopandas
+  - gdal
+  - ogr
+  - rasterio
+  - shapely
+  
+  - pip
+  - pylint
+  - pyTMD
