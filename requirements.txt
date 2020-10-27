@@ -1,15 +1,17 @@
+cartopy
 h5py
 holoviews
+hvplot
 matplotlib
 numpy
-ogr
 pandas
+scikit-learn
 scipy
+xarray
 
 fiona
 geopandas
 gdal
 pyTMD
+rasterio
 shapely
-sklearn
-xarray
