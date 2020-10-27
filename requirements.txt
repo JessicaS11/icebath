@@ -15,4 +15,3 @@ gdal
 pyTMD
 rasterio
 shapely
-xarray
