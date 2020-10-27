@@ -2,23 +2,24 @@ name: icebath
 channels:
   - conda-forge
 dependencies:
+  - datashader
   - h5py
   - holoviews
+  - hvplot
   - matplotlib
   - numpy
   - pandas
   - python
   - scipy
-  - sklearn
+  - scikit-learn
   - xarray
 
   - fiona
   - geopandas
   - gdal
-  - ogr
   - rasterio
   - shapely
   
+  - git
   - pip
   - pylint
-  - pyTMD
