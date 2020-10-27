@@ -1,3 +1,4 @@
+cartopy
 h5py
 holoviews
 hvplot
