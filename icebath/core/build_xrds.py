@@ -66,7 +66,6 @@ def read_DEM(fn=None):
     # Rasterio automatically checks that the file exists
     with xr.open_rasterio(fn) as src:
         darr = src
-    # darr = xr.open_rasterio(fn)
 
     # open_rasterio automatically brings the geotiff in as a DataArray with 'band' as a dimensional coordinate
     # we rename it and remove the band as a coordinate, since our DEM only has one dimension
