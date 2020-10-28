@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import numpy as np
 import os
 import pandas as pd
@@ -14,26 +15,29 @@ def xrds_from_dir(path=None):
     """
     warnings.warn("This function currently assumes a constant grid and EPSG for all input files")
 
-    files = [f for f in os.listdir(path) if f.endswith('.tif')]
+    files = [f for f in os.listdir(path) if f.endswith('dem.tif')]
 
     i=0
     darrays = list(np.zeros(len(files)))
     dtimes = list(np.zeros(len(files)))
     for f in files:
-        print(f)
-        darrays[i], dtimes[i] = read_DEM(path+f)
-        i = i + 1
+        # print(f)
+        darrays[i] = read_DEM(path+f)
+        metaf = f.rpartition("_dem.tif")[0] + "_mdf.txt"
+        try:
+            meta = read_meta(path+metaf)
+            dtimes[i] = get_DEM_img_times(meta)
+        except FileNotFoundError:
+            print("You must manually enter dtimes for these files within the code")
+            dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
+            dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
 
-    print('NOTE: currently dates and times are hard-coded in. Need to automate this in read_DEM still')
-    # If need to set time on dataarray directly, must use numpy timedelta instead
-    # ds['dtime'] = [ds.dtime.values[0], ds.dtime.values[1]+np.timedelta64(12,'h')]
-    dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
-    dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
+        i = i + 1
 
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
     darr = xr.concat(darrays, dim=pd.Index(dtimes, name='dtime'))#, 
                     # coords=['x','y'], join='outer')
-                    # combine_attrs='no_conflicts' # must only be in newest version of xarray
+                    # combine_attrs='no_conflicts' # only in newest version of xarray
 
     # convert to dataset with elevation as a variable
     attr = darr.attrs
@@ -61,7 +65,9 @@ def read_DEM(fn=None):
     """
     
     # Rasterio automatically checks that the file exists
-    darr = xr.open_rasterio(fn)
+    with xr.open_rasterio(fn) as src:
+        darr = src
+    # darr = xr.open_rasterio(fn)
 
     # open_rasterio automatically brings the geotiff in as a DataArray with 'band' as a dimensional coordinate
     # we rename it and remove the band as a coordinate, since our DEM only has one dimension
@@ -81,15 +87,21 @@ def read_DEM(fn=None):
     # mask out the nodata values, since the nodatavals attribute is wrong
     darr = darr.where(darr != -9999.)
 
-    # add time as a dimension
-    # for now fill in an arbitrary, artificial value
-    dtime = dt.datetime(2012, 8, 16, hour=10, minute=33)
-    # darr.attrs['date-time'] = dtime
-    # darr = darr.assign_coords(coords={'date-time': dtime})
-    # darr['dtime'] = [dtime]
+    return darr
 
 
-    return darr, dtime
+def get_DEM_img_times(meta):
+    
+    img1 = meta["sourceImage1"]
+    img2 = meta["sourceImage2"]
+ 
+    dtime1 = dt.datetime.strptime(img1[6:20], '%Y%m%d%H%M%S')
+    dtime2 = dt.datetime.strptime(img2[6:20], '%Y%m%d%H%M%S')
+
+    assert (dtime1-dtime2 < dt.timedelta(minutes=30)), "These stereo image times are >30 min apart"
+    dtime = dt.datetime.fromtimestamp((dtime1.timestamp() + dtime2.timestamp())//2)
+
+    return dtime
 
 
 def add_to_xrds(xrds, add_xr, **kwargs):
@@ -98,8 +110,8 @@ def add_to_xrds(xrds, add_xr, **kwargs):
     """
     # create the dataset if it doesn't exist
     if xrds==None:
-        xrds = xr.Dataset(coords={'date-time':[], 'x':('date-time',[]), 'y':('date-time',[])}, 
-                        data_vars={'elevation':('date-time', [])})
+        xrds = xr.Dataset(coords={'dtime':[], 'x':('dtime',[]), 'y':('dtime',[])}, 
+                        data_vars={'elevation':('dtime', [])})
 
     print("not to be implemented at this time - see notes in module code")
 
@@ -112,3 +124,23 @@ Notes on working with XArray
   separate x,y coordinates for each time, if x and y depend on time? When/where/how does regridding
   and resampling of the data happen?)
 """
+
+
+def read_meta(metafn=None):
+    """
+    Read a [metadata] text file into a dictionary.
+    Function modified from https://github.com/JessicaS11/python_geotif_fns/blob/master/Landsat_TOARefl.py
+    """
+
+    metadata = {}
+
+    #each key is equated with '='. This loop strips and seperates then fills the dictonary.
+    with open(metafn) as f:    
+        for line in f:
+            if not line.strip(';') == "END":
+                val = line.strip().split('=')
+                metadata[val[0].strip()] = val[1].strip().strip(';')      
+            else:
+                break
+	
+    return metadata
