@@ -6,6 +6,7 @@ import numpy as np
 # import ogr
 # import os
 # import fnmatch
+import pyproj
 import rasterio.features
 from shapely.geometry import box
 from shapely.geometry import Polygon as shpPolygon
@@ -130,6 +131,32 @@ class BergXR:
 
         # return self._xrds
 
+
+    def to_geoid(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']}, geoid=None):
+        """
+        Change the elevation values to be relative to the geoid rather than the ellipsoid
+        (as ArcticDEM data comes) by ... The dataset
+        gets a keyword added to the "offsets" attribute
+
+        Note: CRS codes are hard-coded in for EPSG:3413 (NSIDC Polar Stereo) and EPSG:3855 (EGM08 Geoid)
+        """
+
+        try:
+            values = (self._xrds.attrs['offset_names'])
+            assert 'geoid_offset' not in values, "You've already applied the geoid offset!"
+            values = list([values])+ ['geoid_offset']
+        except KeyError:
+            self._xrds.attrs['offset_names'] = ()
+            values = ('geoid_offset')
+
+        self._validate(self, req_dim, req_vars)
+
+        
+
+        self._xrds.attrs['crs'] = pyproj.Proj("EPSG:3413")
+        self._xrds.attrs['offset_names'] = values
+
+        return self._xrds
 
     def tidal_corr(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']},
                         loc=None): #, **kwargs):

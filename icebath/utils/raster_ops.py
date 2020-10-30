@@ -2,6 +2,44 @@ import shapely.geometry
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import pyproj
+
+
+def crs2crs(incrs, outcrs, x, y, z):
+    """
+    Given two coordinate reference systems and x, y, z points, convert between them
+    """
+
+    # info on projections: pyproj.crs.CRS.from_epsg(3855)
+    tf = pyproj.Transformer.from_proj(incrs, outcrs)
+    gx, gy, gz = tf.transform(x,y,z)
+
+    return gx, gy, gz
+
+
+"""
+# Original attempt at crs2crs to apply geoid offset using the Proj +vgridshift flag via pyproj, which didn't work
+
+import os
+# check that grid file to be used is actually present (no warning will be given to the user otherwise)
+grid = 'egm08_25.gtx'
+assert os.path.exists(pyproj.datadir.get_data_dir()+'/'+grid), "Grid file needed"
+# otherwise, download the grid file: http://download.osgeo.org/proj/vdatum/egm08_25/
+# and put it in the right directory: `pyproj.datadir.get_data_dir()`
+
+import pyproj
+from pyproj.transformer import TransformerGroup
+
+# Find grids by using the map at: https://cdn.proj.org/
+ellipsoidal = 'epsg:3413'
+geoidal = '+init=epsg:3413 +proj=vgridshift +grids=egm08_25.gtx'
+
+# Using a TransformGroup --> results in no vertical offset (but a km scale horizontal one)
+tfgroup=TransformerGroup(ellipsoidal, geoidal, always_xy=True)
+print(tfgroup)
+newx, newy, newz = tfgroup.transformers[0].transform(x,y,z)
+"""
+
 
 def poly_from_thresh(x,y,elev,threshold):
     '''
