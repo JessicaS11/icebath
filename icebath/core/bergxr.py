@@ -88,6 +88,33 @@ class BergXR:
     #     req_cols = [column] # e.g. 'draft' for iceberg water depths, 'depth' for measured depths
     #     self._validate(self._gdf, req_cols)
 
+
+    def _calc_allpoints(self, function, req_dim=None, req_vars=None):
+        """
+        Helper function to do a pixel-wise calculation that requires using x and y dimension values
+        as inputs. This version does the computation over all available timesteps as well.
+
+        Point-based iteration based on example code by Ryan Abernathy from:
+        https://gist.github.com/rabernat/bc4c6990eb20942246ce967e6c9c3dbe
+        """
+
+        # note: the below code will need to be generalized for using this function outside of to_geoid
+        self._validate(self, req_dim, req_vars)
+
+        def _time_wrapper(gb):
+            gb = gb.groupby('dtime', squeeze=False).apply(function)
+            return gb
+        
+        # stack x and y into a single dimension called allpoints
+        stacked = self._xrds.stack(allpoints=['x','y'])
+        # groupby time and apply the function over allpoints to calculate the trend at each point
+        newelev = stacked.groupby('allpoints', squeeze=False).apply(_time_wrapper)
+        # unstack back to x y coordinates
+        self._xrds = newelev.unstack('allpoints')
+
+        return self._xrds
+
+
     def get_mask(self, req_dim=['x','y'], req_vars=None, 
                     name=None,
                     shpfile='/home/jovyan/icebath/notebooks/supporting_docs/Land_region.shp'):
@@ -132,11 +159,11 @@ class BergXR:
         # return self._xrds
 
 
-    def to_geoid(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']}, geoid=None):
+    def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime']}, geoid=None):
         """
         Change the elevation values to be relative to the geoid rather than the ellipsoid
-        (as ArcticDEM data comes) by ... The dataset
-        gets a keyword added to the "offsets" attribute
+        (as ArcticDEM data comes) by iterating over each pixel (over time).
+        Gets a keyword added to the "offsets" attribute
 
         Note: CRS codes are hard-coded in for EPSG:3413 (NSIDC Polar Stereo) and EPSG:3855 (EGM08 Geoid)
         """
@@ -147,16 +174,44 @@ class BergXR:
             values = list([values])+ ['geoid_offset']
         except KeyError:
             self._xrds.attrs['offset_names'] = ()
-            values = ('geoid_offset')
+            values = ['geoid_offset']
 
         self._validate(self, req_dim, req_vars)
+            
+        # self._xrds['elevation_orig'] = self._xrds['elevation']
 
+        self._calc_allpoints(self._to_geoid_wrapper) #don't supply req_dim and req_vars since same as submitted to this fn
+
+        self._xrds.attrs['crs'] = pyproj.Proj("EPSG:3413+3855")
         
-
-        self._xrds.attrs['crs'] = pyproj.Proj("EPSG:3413")
         self._xrds.attrs['offset_names'] = values
 
         return self._xrds
+
+
+    def _to_geoid_wrapper(self, gb):
+        """
+        XArray wrapper for the raster_ops.crs2crs function to be able to use it with
+        `.groupby().apply()` to get geoid heights. It also checks that the x and y values
+        are not affected by computing the geoid offset.
+        
+        Parameters
+        ----------
+        gb : groupby object
+            Must contain the fields ...
+        """  
+        # print(gb)
+        x=gb.allpoints.x.values
+        y=gb.allpoints.y.values
+        z=gb.elevation.values[0]
+        nx, ny, nz = raster_ops.crs2crs(pyproj.Proj("EPSG:3413"), pyproj.Proj("EPSG:3413+3855"), x, y, z)
+        
+        assert np.isclose(x, nx)==True, "x values have changed a bunch"
+        assert np.isclose(y, ny)==True, "y values have changed a bunch"
+        gb = gb.assign(elevation=('dtime', nz))
+        
+        return gb
+
 
     def tidal_corr(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']},
                         loc=None): #, **kwargs):
@@ -175,7 +230,7 @@ class BergXR:
             assert 'tidal_corr' not in values, "You've already applied a tidal correction!"
             values = list([values])+ ['tidal_corr']
         except KeyError:
-            self._xrds.attrs['offset_names'] = ()
+            # self._xrds.attrs['offset_names'] = ()
             values = ('tidal_corr')
         
         self._validate(self, req_dim, req_vars)
