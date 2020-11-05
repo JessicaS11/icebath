@@ -214,7 +214,7 @@ class BergXR:
 
 
     def tidal_corr(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']},
-                        loc=None): #, **kwargs):
+                        loc=None, **kwargs):
         """
         Gets tidal predictions for the image date/time in the fjord of interest,
         then applies the tidal correction to the elevation field. The dataset
@@ -223,7 +223,8 @@ class BergXR:
         tides and see output plots, see fl_ice_calcs.predict_tides.
         """
 
-        print("Note that tide model, model location, and epsg are hard coded in!")
+        print("Note that tide model, model location (on Pangeo), and epsg are hard coded in!")
+        print("They can also be provided as keywords if the wrapper function is updated to handle them")
 
         try:
             values = (self._xrds.attrs['offset_names'])
@@ -238,7 +239,7 @@ class BergXR:
         # kwargs: model_path='/home/jovyan/pyTMD/models',
         #                 **model='AOTIM-5-2018', **epsg=3413
         
-        self._xrds = self._xrds.groupby('dtime', squeeze=False).apply(self._tidal_corr_wrapper, args=(loc))
+        self._xrds = self._xrds.groupby('dtime', squeeze=False).apply(self._tidal_corr_wrapper, args=(loc), **kwargs)
 
         self._xrds.attrs['offset_names'] = values
 
@@ -255,10 +256,15 @@ class BergXR:
         gb : groupby object
             Must contain the fields ...
         """  
-        
+
+        if kwargs['model_path']:
+            model_path = kwargs['model_path']
+        else: 
+            model_path='/home/jovyan/pyTMD/models'
+
         time, tidal_ht, plots = icalcs.predict_tides(loc, 
                                                     img_time=gb.dtime.values, 
-                                                    model_path='/home/jovyan/pyTMD/models', 
+                                                    model_path=model_path, 
                                                     model='AOTIM-5-2018', 
                                                     epsg=3413)
         tidx = list(time).index(np.timedelta64(12, 'h').item().total_seconds())

@@ -21,10 +21,10 @@ def xrds_from_dir(path=None):
     darrays = list(np.zeros(len(files)))
     dtimes = list(np.zeros(len(files)))
     for f in files:
-        # print(f)
+        print(f)
         try:
             # darrays[i] = read_DEM(path+f)
-            darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoid.tif")
+            darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
         except RasterioIOError:
             print("You need to create geoid versions of your DEMs")
             break
@@ -94,6 +94,10 @@ def read_DEM(fn=None):
 
     # mask out the nodata values, since the nodatavals attribute is wrong
     darr = darr.where(darr != -9999.)
+
+    # the gdalwarp geoid files have this extra attribute in the geoTiff, which when brought in
+    # ultimately causes a "__module__" related error when trying to plot with hvplot
+    del darr.attrs["units"]   
 
     return darr
 
