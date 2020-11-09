@@ -7,18 +7,20 @@ import xarray as xr
 import warnings
 
 # from icebath.core import fjord_props
+from icebath.core import fl_ice_calcs as icalcs
+
 
 def xarray_to_gdf(xr):
     """
     Takes an xarray DataSet and generates a geodataframe of icebergs from the DEMs
     """
-    print('marker1')
+    # print('marker1')
     berg_gdf = gpd.GeoDataFrame(data=None)
-    print(xr['dtime'])
+    # print(xr['dtime'])
     for num in range(0, len(xr['dtime'])):
-        print('marker2')
+        # print('marker2')
         temp_berg_df = gdf_of_bergs(xr.isel({'dtime':num}))
-        print(xr['dtime'].isel({'dtime':num}))
+        # print(xr['dtime'].isel({'dtime':num}))
         berg_gdf = berg_gdf.append(temp_berg_df, ignore_index=True)
 
     berg_gdf.crs = xr.attrs['crs']
@@ -36,15 +38,15 @@ def gdf_of_bergs(onedem):
     values=np.empty_like(bergs, dtype=object)
     sl_adj=np.zeros(len(bergs))
     berg_poly=np.empty_like(bergs, dtype=object)
-    print(onedem['dtime'])
+    # print(onedem['dtime'])
 
     i=0
     for i in range(0, len(bergs)):
         #store as a polygon to turn into a geopandas geometry and extract only exterior coordinates (i.e. no holes)
-        berg_poly[i] = Polygon(bergs[i])#.exterior.coords
+        berg_poly[i] = Polygon(bergs[i])#exterior.coords
         # print(berg_poly[i])
         # print(type(berg_poly[i]))
-        
+        # print(i)
         #get the elevation values for the pixels within the iceberg
         # bounds: (minx, miny, maxx, maxy)
         bound_box = berg_poly[i].bounds
@@ -54,22 +56,42 @@ def gdf_of_bergs(onedem):
                                         y=slice(bound_box[1], bound_box[3]))#.values.flatten()
         # print(vals)
         vals=vals.values.flatten()
+
+        if np.any(vals > 500):
+            print('iceberg too tall. Removing...')
+            continue
+        # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
+        vals = vals[~np.isnan(vals)]
+        # print(vals)
         # print(onedem.attrs['berg_threshold'])
         values[i] = vals[vals>=onedem.attrs['berg_threshold']]
         # print(values[i])
+        # print('check1')
         #get the regional elevation values and determine the sea level adjustment
         #make this border/boundary larger than one pixel (and do it by number of pixels!)
         bvals = onedem['elevation'].sel(x=slice(bound_box[0]-100, bound_box[2]+100),
                                         y=slice(bound_box[1]-100, bound_box[3]+100)).values.flatten()
+        # print(bvals)
+        bvals=bvals[~np.isnan(bvals)]
         sea = bvals[bvals<onedem.attrs['berg_threshold']]
         # print(bvals)
-        sl_adj[i] = np.median(sea)
+        # print(bvals[0])
+        # print(type(bvals[0]))
+        # print(np.isnan(bvals[0]))
+        # print(sea)
+        sl_adj[i] = np.nanmedian(sea)
         # print(sl_adj[i])
         #add a check here to make sure the sea level adjustment is reasonable
         # print('check for a reasonable sea level adjustment')
         
         #apply the sea level adjustment to the elevation values
-        values[i] = values[i] - sl_adj[i]
+        # if np.isnan(sl_adj[i]):
+        #     sladj=0
+        # else:
+        #     sladj=sl_adj[i]
+        # values[i] = values[i] - sladj
+
+        values[i] = icalcs.apply_decrease_offset(values[i], sl_adj[i])
 
     temp_berg_df = gpd.GeoDataFrame({"DEMarray":values, 'sl_adjust':sl_adj, 'berg_poly':berg_poly}, geometry='berg_poly')
 

@@ -333,6 +333,7 @@ class BergXR:
         # DevGoal: probably some of this should check crs and be done at another stage of processing...
         if mask_poly or area:
             filtered_polys = []
+            area_flag = False
             for polyarr in polys:
                 poly = shpPolygon(polyarr)
 
@@ -342,18 +343,20 @@ class BergXR:
                         # print('polygon intersects land')
                         continue
 
-                # remove the polygon if it's too small (e.g. one pixel)
+                # remove the polygon if it's too small (e.g. three pixels)
                 if area:
-                    if poly.area < area:
-                        # print('polygon too small')
+                    if poly.area < area*3:
+                        area_flag=True
                         continue
                 
                 filtered_polys.append(polyarr)
                 
         else:
             filtered_polys=polys
-        # print(len(filtered_polys))
         
+        if area_flag==True:
+            print('one or more polygons with area less than 3 pixels were removed')
+
         bergs=pd.Series({'bergs':filtered_polys}, dtype='object')
 
         return gb.assign(berg_outlines=('dtime',bergs))
