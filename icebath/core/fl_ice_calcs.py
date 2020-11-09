@@ -37,6 +37,8 @@ def apply_decrease_offset(draft, offset):
     """
     Apply a bias offset that will decrease the draft
     """
+    if np.isnan(offset):
+        offset=0
     corr_draft = draft - offset
     return corr_draft
 
