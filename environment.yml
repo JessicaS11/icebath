@@ -15,6 +15,7 @@ dependencies:
   - xarray
 
   - cartopy
+  - descartes
   - fiona
   - geopandas
   - gdal
