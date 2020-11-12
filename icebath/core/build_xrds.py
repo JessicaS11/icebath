@@ -3,6 +3,7 @@ import numpy as np
 import os
 import pandas as pd
 import rasterio.transform
+from rasterio.errors import RasterioIOError
 import xarray as xr
 import warnings
 
@@ -20,10 +21,18 @@ def xrds_from_dir(path=None):
     darrays = list(np.zeros(len(files)))
     dtimes = list(np.zeros(len(files)))
     for f in files:
-        # print(f)
-        darrays[i] = read_DEM(path+f)
+        print(f)
+        try:
+            # darrays[i] = read_DEM(path+f)
+            darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
+        except RasterioIOError:
+            print("You need to create geoid versions of your DEMs")
+            break
+        
         metaf = f.rpartition("_dem.tif")[0] + "_mdf.txt"
         try:
+            # Note: the metadata is specifically for the original DEMs,
+            # not those corrected to the geoid that are read in here
             meta = read_meta(path+metaf)
             dtimes[i] = get_DEM_img_times(meta)
         except FileNotFoundError:
@@ -38,10 +47,11 @@ def xrds_from_dir(path=None):
                     # coords=['x','y'], join='outer')
                     # combine_attrs='no_conflicts' # only in newest version of xarray
 
-    # convert to dataset with elevation as a variable
+    # convert to dataset with elevation as a variable and add attributes
     attr = darr.attrs
     ds = darr.to_dataset()
     ds.attrs = attr
+    ds.attrs['offset_names'] = ('geoid_offset')
     attr=None
     # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
     # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
@@ -84,6 +94,10 @@ def read_DEM(fn=None):
 
     # mask out the nodata values, since the nodatavals attribute is wrong
     darr = darr.where(darr != -9999.)
+
+    # the gdalwarp geoid files have this extra attribute in the geoTiff, which when brought in
+    # ultimately causes a "__module__" related error when trying to plot with hvplot
+    del darr.attrs["units"]   
 
     return darr
 

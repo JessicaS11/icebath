@@ -6,6 +6,7 @@ import numpy as np
 # import ogr
 # import os
 # import fnmatch
+import pyproj
 import rasterio.features
 from shapely.geometry import box
 from shapely.geometry import Polygon as shpPolygon
@@ -87,6 +88,33 @@ class BergXR:
     #     req_cols = [column] # e.g. 'draft' for iceberg water depths, 'depth' for measured depths
     #     self._validate(self._gdf, req_cols)
 
+
+    def _calc_allpoints(self, function, req_dim=None, req_vars=None):
+        """
+        Helper function to do a pixel-wise calculation that requires using x and y dimension values
+        as inputs. This version does the computation over all available timesteps as well.
+
+        Point-based iteration based on example code by Ryan Abernathy from:
+        https://gist.github.com/rabernat/bc4c6990eb20942246ce967e6c9c3dbe
+        """
+
+        # note: the below code will need to be generalized for using this function outside of to_geoid
+        self._validate(self, req_dim, req_vars)
+
+        def _time_wrapper(gb):
+            gb = gb.groupby('dtime', squeeze=False).apply(function)
+            return gb
+        
+        # stack x and y into a single dimension called allpoints
+        stacked = self._xrds.stack(allpoints=['x','y'])
+        # groupby time and apply the function over allpoints to calculate the trend at each point
+        newelev = stacked.groupby('allpoints', squeeze=False).apply(_time_wrapper)
+        # unstack back to x y coordinates
+        self._xrds = newelev.unstack('allpoints')
+
+        return self._xrds
+
+
     def get_mask(self, req_dim=['x','y'], req_vars=None, 
                     name=None,
                     shpfile='/home/jovyan/icebath/notebooks/supporting_docs/Land_region.shp'):
@@ -131,8 +159,62 @@ class BergXR:
         # return self._xrds
 
 
+    def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime']}, geoid=None):
+        """
+        Change the elevation values to be relative to the geoid rather than the ellipsoid
+        (as ArcticDEM data comes) by iterating over each pixel (over time).
+        Gets a keyword added to the "offsets" attribute
+
+        Note: CRS codes are hard-coded in for EPSG:3413 (NSIDC Polar Stereo) and EPSG:3855 (EGM08 Geoid)
+        """
+
+        try:
+            values = (self._xrds.attrs['offset_names'])
+            assert 'geoid_offset' not in values, "You've already applied the geoid offset!"
+            values = list([values])+ ['geoid_offset']
+        except KeyError:
+            self._xrds.attrs['offset_names'] = ()
+            values = ['geoid_offset']
+
+        self._validate(self, req_dim, req_vars)
+            
+        # self._xrds['elevation_orig'] = self._xrds['elevation']
+
+        self._calc_allpoints(self._to_geoid_wrapper) #don't supply req_dim and req_vars since same as submitted to this fn
+
+        self._xrds.attrs['crs'] = pyproj.Proj("EPSG:3413+3855")
+        
+        self._xrds.attrs['offset_names'] = values
+
+        return self._xrds
+
+
+    def _to_geoid_wrapper(self, gb):
+        """
+        XArray wrapper for the raster_ops.crs2crs function to be able to use it with
+        `.groupby().apply()` to get geoid heights. It also checks that the x and y values
+        are not affected by computing the geoid offset.
+        
+        Parameters
+        ----------
+        gb : groupby object
+            Must contain the fields ...
+        """  
+        # print(gb)
+        x=gb.allpoints.x.values
+        y=gb.allpoints.y.values
+        z=gb.elevation.values[0]
+        nx, ny, nz = raster_ops.crs2crs(pyproj.Proj("EPSG:3413"), pyproj.Proj("EPSG:3413+3855"), x, y, z)
+        
+        assert np.isclose(x, nx)==True, "x values have changed a bunch"
+        assert np.isclose(y, ny)==True, "y values have changed a bunch"
+        gb = gb.assign(elevation=('dtime', nz))
+        
+        return gb
+
+
     def tidal_corr(self, req_dim=['dtime'], req_vars={'elevation':['x','y','dtime']},
-                        loc=None): #, **kwargs):
+                        loc=None, **kwargs):
         """
         Gets tidal predictions for the image date/time in the fjord of interest,
         then applies the tidal correction to the elevation field. The dataset
@@ -141,14 +223,15 @@ class BergXR:
         tides and see output plots, see fl_ice_calcs.predict_tides.
         """
 
-        print("Note that tide model, model location, and epsg are hard coded in!")
+        print("Note that tide model, model location (on Pangeo), and epsg are hard coded in!")
+        print("They can also be provided as keywords if the wrapper function is updated to handle them")
 
         try:
             values = (self._xrds.attrs['offset_names'])
             assert 'tidal_corr' not in values, "You've already applied a tidal correction!"
             values = list([values])+ ['tidal_corr']
         except KeyError:
-            self._xrds.attrs['offset_names'] = ()
+            # self._xrds.attrs['offset_names'] = ()
             values = ('tidal_corr')
         
         self._validate(self, req_dim, req_vars)
@@ -156,7 +239,7 @@ class BergXR:
         # kwargs: model_path='/home/jovyan/pyTMD/models',
         #                 **model='AOTIM-5-2018', **epsg=3413
         
-        self._xrds = self._xrds.groupby('dtime', squeeze=False).apply(self._tidal_corr_wrapper, args=(loc))
+        self._xrds = self._xrds.groupby('dtime', squeeze=False).apply(self._tidal_corr_wrapper, args=(loc), **kwargs)
 
         self._xrds.attrs['offset_names'] = values
 
@@ -173,10 +256,15 @@ class BergXR:
         gb : groupby object
             Must contain the fields ...
         """  
-        
+
+        if kwargs['model_path']:
+            model_path = kwargs['model_path']
+        else: 
+            model_path='/home/jovyan/pyTMD/models'
+
         time, tidal_ht, plots = icalcs.predict_tides(loc, 
                                                     img_time=gb.dtime.values, 
-                                                    model_path='/home/jovyan/pyTMD/models', 
+                                                    model_path=model_path, 
                                                     model='AOTIM-5-2018', 
                                                     epsg=3413)
         tidx = list(time).index(np.timedelta64(12, 'h').item().total_seconds())
@@ -245,6 +333,7 @@ class BergXR:
         # DevGoal: probably some of this should check crs and be done at another stage of processing...
         if mask_poly or area:
             filtered_polys = []
+            area_flag = False
             for polyarr in polys:
                 poly = shpPolygon(polyarr)
 
@@ -254,18 +343,20 @@ class BergXR:
                         # print('polygon intersects land')
                         continue
 
-                # remove the polygon if it's too small (e.g. one pixel)
+                # remove the polygon if it's too small (e.g. three pixels)
                 if area:
-                    if poly.area < area:
-                        # print('polygon too small')
+                    if poly.area < area*3:
+                        area_flag=True
                         continue
                 
                 filtered_polys.append(polyarr)
                 
         else:
             filtered_polys=polys
-        # print(len(filtered_polys))
         
+        if area_flag==True:
+            print('one or more polygons with area less than 3 pixels were removed')
+
         bergs=pd.Series({'bergs':filtered_polys}, dtype='object')
 
         return gb.assign(berg_outlines=('dtime',bergs))
