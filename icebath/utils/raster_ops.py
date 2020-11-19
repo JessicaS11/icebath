@@ -61,7 +61,6 @@ def poly_from_thresh(x,y,elev,threshold):
     # Can use collections[0] so long as you only have one threshold value. Otherwise you have to iterate through the collections.
     # print(cs.collections[0].get_alpha())
     # cs.collections.get_alpha()
-    print(len(cs.collections))
     p = cs.collections[0].get_paths()
     polygons = []
     
@@ -90,7 +89,6 @@ def poly_from_thresh(x,y,elev,threshold):
 
 
     print(len(polygons))
-    print(type(polygons))
     plt.close(fig)
 
     return polygons

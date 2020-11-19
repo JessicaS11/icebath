@@ -18,3 +18,4 @@ def get_poly_area(outlinePolygonSet):
             np.dot(polygon[:, 0], np.roll(polygon[:, 1], 1)) - np.dot(polygon[:, 1], np.roll(polygon[:, 0], 1)))
         areas.append(area)
     return(areas)
+
