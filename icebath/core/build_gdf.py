@@ -94,7 +94,7 @@ def gdf_of_bergs(onedem):
         sl_adjs.append(sl_adj)
 
 
-    temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adj, 'berg_poly':filt_bergs}, geometry='berg_poly')
+    temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':filt_bergs}, geometry='berg_poly')
 
     # TODO: generalize the fjord input
     fjord='JI'

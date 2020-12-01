@@ -55,6 +55,11 @@ def poly_from_thresh(x,y,elev,threshold):
     '''
 
     elev = elev#np.nan_to_num(elev, nan=0)
+    # A particular challenge of using contour and handling nans in this application is that:
+    # if nans are 0s, no data regions are outlined. It's more accurate to leave the nans
+    # (which are handled by contour) and get fewer polygons. However, then the challenge arises
+    # that in many DEMs, sea level > threshold by a lot, so we don't pick up icebergs because there's
+    # not a large enough elevation difference in the pixels that ARE there for contour to pick up.
     X,Y = np.meshgrid(x,y)
     fig = plt.figure()
     cs = plt.contour(X, Y, elev, 'k-', levels=[threshold])
@@ -73,6 +78,7 @@ def poly_from_thresh(x,y,elev,threshold):
     # for pi in range(len(p)):
     #     polygon = p[pi].vertices
     # It is also recommended to now use scikit-image for contour finding (skimage.measure.find_contours)
+    # 
 
     for contour_path in p: 
         # try to get the alpha value or otherwise determine if the polygon traces a nan region
@@ -92,3 +98,30 @@ def poly_from_thresh(x,y,elev,threshold):
     plt.close(fig)
 
     return polygons
+
+
+def poly_from_edges(x,y,elev,sigma,resolution,min_area):
+    '''
+    Create an edge map, refine it, and use it to get a list of polygon vertices
+
+    This function does not consider or deal with projections.
+
+    Parameters
+    ----------
+
+    '''
+
+    # Compute the Canny filter
+    edges = feature.canny(im, sigma=sigma)
+
+    filled_edges = ndimage.binary_fill_holes(edges)
+
+    # remove small objects and polyganize
+    # if we assume a minimum area of 4000m2, then we need to divide that by the spatial 
+    # resolution (2x2=4m2) to get the min size
+    # Note: trying to polygonize the edge map directly is computationally intensive
+    labeled = scipy.ndimage.label(skimage.morphology.remove_small_objects(
+        filled_edges, min_size=min_area/(resolution^2), connectivity=1))[0]
+    # Note: can do the remove small objects in place with `in_place=False`
+
+    return labeled
