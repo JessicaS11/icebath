@@ -1,11 +1,16 @@
 import warnings
 import numpy as np
 
+# can likely depricate this function (use built-in area methods of geospatial libraries instead)
 def get_poly_area(outlinePolygonSet):
     '''
     Given a true-scale set of polygon vertices, compute the area of each polygon.
 
     From Mike Wood's get_surface_areas
+
+    Example
+    -------
+    >>> areas = vector_ops.get_poly_area(ds['berg_outlines'].values[timei])
     '''
 
     areas=[]

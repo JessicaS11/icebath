@@ -2,6 +2,7 @@ import datetime as dt
 import numpy as np
 import os
 import geopandas as gpd
+import rasterio
 from shapely.geometry import Polygon
 import xarray as xr
 import warnings
@@ -35,17 +36,31 @@ def gdf_of_bergs(onedem):
     # np.warnings.filterwarnings('error', category=np.VisibleDeprecationWarning)
     
     # get potential icebergs from edges in raster image (or some other method - do it for the thresholding first since have a function for it)
-    threshold=60
-    bergs = raster_ops.poly_from_thresh(onedem.x, onedem.y, onedem.elevation, threshold)
+    # threshold=60
+    # bergs = raster_ops.poly_from_thresh(onedem.x, onedem.y, onedem.elevation, threshold)
+    
+    trans=onedem.attrs['transform']
+    flipax=[]
+    if trans[0] < 0:
+        flipax.append(1)
+    if trans[4] < 0:
+        flipax.append(0)
 
-    print("Got potential icebergs for an image")
+    res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
+    labeled_arr = raster_ops.labeled_from_edges(onedem.elevation.values, sigma=6, resolution=res, min_area=4000, flipax=flipax)
+    print("Got labeled raster of potential icebergs for an image")
 
-    # remove icebergs that don't meet the requirements
-    filt_bergs = []
+    # create iceberg polygons, excluding icebergs that don't meet the requirements
+    # Note: features.shapes returns a generator. However, if we try to iterate through it with a for loop, the StopIteration exception
+    # is not passed up into the for loop and execution hangs when it hits the end of the for loop withouth completing the function
+    poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=trans))[:-1]
+    
+    bergs = []
     elevs = []
     sl_adjs = []
 
-    for berg in bergs:
+
+    for berg in poss_bergs: # note: features.shapes returns a generator
         # make a valid shapely Polygon of the berg vertices
         berg = Polygon(berg)
         if berg.is_valid == False:
@@ -53,11 +68,12 @@ def gdf_of_bergs(onedem):
         # remove holes
         if berg.interiors:
             berg = Polygon(list(berg.exterior.coords))
-        
-        # skip too-small bergs
-        minarea = 100
-        if berg.area < minarea:
-            continue
+
+        # too-small polygons are eliminated in the edge map labeling step (raster_ops.labeled_from_edges)
+        # # skip too-small bergs
+        # minarea = 100
+        # if berg.area < minarea:
+        #     continue
 
         # get the raster pixel values for the iceberg
         # bounds: (minx, miny, maxx, maxy)
@@ -76,28 +92,29 @@ def gdf_of_bergs(onedem):
         vals = vals[~np.isnan(vals)]
         
         # get the regional elevation values and determine the sea level adjustment
-        #TODO: make this border/boundary larger than one pixel (and do it by number of pixels!)
-        bvals = onedem['elevation'].sel(x=slice(bound_box[0]-100, bound_box[2]+100),
-                                        y=slice(bound_box[1]-100, bound_box[3]+100)).values.flatten()
+        # 10 pixel buffer
+        buffer = 10 * res
+        bvals = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
+                                        y=slice(bound_box[1]-buffer, bound_box[3]+buffer)).values.flatten()
         bvals=bvals[~np.isnan(bvals)]
+
         sea = [val for val in bvals if val not in vals]
         # print(sea)
         # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
         #add a check here to make sure the sea level adjustment is reasonable
         sl_adj = np.nanmedian(sea)
-        
         #apply the sea level adjustment to the elevation values
         vals = icalcs.apply_decrease_offset(vals, sl_adj)
 
-        filt_bergs.append(berg)
+        bergs.append(berg)
         elevs.append(vals)
         sl_adjs.append(sl_adj)
 
-
-    temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':filt_bergs}, geometry='berg_poly')
+    temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':bergs}, geometry='berg_poly')
 
     # TODO: generalize the fjord input
     fjord='JI'
+    
     # add values that are same for all icebergs in DEM
     names = ['fjord', 'date', 'tidal_ht_offset', 'tidal_ht_min', 'tidal_ht_max']
     col_val = [fjord, onedem['dtime'].values, onedem['tidal_corr'].item(), onedem['min_tidal_ht'].item(), onedem['max_tidal_ht'].item()]
@@ -106,6 +123,7 @@ def gdf_of_bergs(onedem):
         temp_berg_df[name] = val
 
     print("Generated geodataframe of icebergs for this image")
+
     return temp_berg_df
    
 
