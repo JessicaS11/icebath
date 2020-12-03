@@ -159,7 +159,53 @@ class BergXR:
         # return self._xrds
 
 
-    def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime']}, geoid=None):
+    def get_netcdf(self, req_dim=['x','y'], newfile=None, variable=None, varname=None):
+        """
+        Get info from another dataset (NetCDF) and resample it and add it to the dataset.
+        Note: this requires you have a local copy of the NetCDF you are using.
+        Note: this also assumes reconciled crs between the existing and input variables.
+        """
+
+        self._validate(self, req_dim)
+
+        # add check for existing file?
+        assert newfile != None, "You must provide an input file of the dataset to add."
+        assert variable != None, "You must specify which variable you'd like to add"
+
+        newdset = xr.open_dataset(newfile)
+        newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y'])
+        self._xrds[varname] = newvar
+        
+
+    def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime','geoid']}):
+        """
+        Get geoid layer from BedMachine (you must have the NetCDF stored locally; filename is hardcoded in)
+        and apply to all elevation values.
+        Adds 'geoid_offset' keyword to "offsets" attribute
+        """
+
+        try:
+            values = (self._xrds.attrs['offset_names'])
+            assert 'geoid_offset' not in values, "You've already applied the geoid offset!"
+            values = list([values])+ ['geoid_offset']
+        except KeyError:
+            self._xrds.attrs['offset_names'] = ()
+            values = ['geoid_offset']
+
+        self._validate(self, req_dim, req_vars)
+
+        self.get_netcdf(newfile='/Users/jessica/mapping/datasets/160281892/BedMachineGreenland-2017-09-20.nc',
+                              variable='geoid', varname='geoid')
+        
+
+        self._xrds['elevation'] = self._xrds.elevation - self._xrds.geoid
+
+        self._xrds.attrs['offset_names'] = values
+
+        return self._xrds
+
+
+    def to_geoid_pixel(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime']}, geoid=None):
         """
         Change the elevation values to be relative to the geoid rather than the ellipsoid
         (as ArcticDEM data comes) by iterating over each pixel (over time).
