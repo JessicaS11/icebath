@@ -47,7 +47,8 @@ def gdf_of_bergs(onedem):
         flipax.append(0)
 
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
-    labeled_arr = raster_ops.labeled_from_edges(onedem.elevation.values, sigma=6, resolution=res, min_area=4000, flipax=flipax)
+    # labeled_arr = raster_ops.labeled_from_edges(onedem.elevation.values, sigma=6, resolution=res, min_area=4000, flipax=flipax)
+    labeled_arr = raster_ops.labeled_from_segmentation(onedem.elevation.values, [3,10], resolution=res, min_area=4000, flipax=flipax)
     print("Got labeled raster of potential icebergs for an image")
 
     # create iceberg polygons, excluding icebergs that don't meet the requirements
@@ -75,6 +76,11 @@ def gdf_of_bergs(onedem):
         # if berg.area < minarea:
         #     continue
 
+        # skip bergs that are too large to realistically be just one berg
+        if berg.area > 1000000:
+            print('"iceberg" too large. Removing...')
+            continue
+        
         # get the raster pixel values for the iceberg
         # bounds: (minx, miny, maxx, maxy)
         bound_box = berg.bounds
@@ -88,6 +94,8 @@ def gdf_of_bergs(onedem):
         if np.any(vals > 500):
             print('"iceberg" too tall. Removing...')
             continue
+
+
         # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
         vals = vals[~np.isnan(vals)]
         

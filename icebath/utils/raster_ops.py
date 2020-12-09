@@ -3,7 +3,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pyproj
-from skimage import feature, morphology
+from skimage import feature, morphology, filters, segmentation
 from scipy import ndimage
 
 
@@ -126,6 +126,42 @@ def labeled_from_edges(elev,sigma,resolution,min_area, flipax=[]):
         filled_edges, min_size=min_area/(resolution**2), connectivity=1))#[0] # 2nd output is num of objects
     # Note: can do the remove small objects in place with `in_place=False`
     # print(count)
+
+    # flip the array, if needed
+    labeled = np.flip(labeled, axis=flipax)
+    
+    return labeled
+
+def labeled_from_segmentation(elev, markers, resolution, min_area, flipax=[]):
+    """
+    Apply some image filters, provide seed points using value extremes, and
+    segment the image using a watershed analysis of the elevation map.
+
+    This function does not consider or deal with projections.
+
+    Parameters
+    ----------
+
+    markers: list
+            ordered list with lower and upper values for seeding the segmentation
+    """
+
+    # Compute the "elevation map"
+    elev_map = filters.sobel(elev)
+
+    # create seed markers and mask them
+    marker_arr = np.zeros_like(elev)
+    marker_arr[elev < markers[0]] = 1
+    marker_arr[elev > markers[1]] = 2
+    marker_arr = np.ma.array(marker_arr, mask=np.isnan(elev))
+
+    # create a watershed segmentation
+    segmented = segmentation.watershed(elev_map, marker_arr)
+
+    # fill in the segmentation and label the features
+    filled_seg = ndimage.binary_fill_holes(segmented - 1)
+    labeled, count = ndimage.label(morphology.remove_small_objects(
+        filled_seg, min_size=min_area/(resolution**2), connectivity=1))#[0]
 
     # flip the array, if needed
     labeled = np.flip(labeled, axis=flipax)
