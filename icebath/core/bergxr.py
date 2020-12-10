@@ -159,7 +159,53 @@ class BergXR:
         # return self._xrds
 
 
-    def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime']}, geoid=None):
+    def get_netcdf(self, req_dim=['x','y'], newfile=None, variable=None, varname=None):
+        """
+        Get info from another dataset (NetCDF) and resample it and add it to the dataset.
+        Note: this requires you have a local copy of the NetCDF you are using.
+        Note: this also assumes reconciled crs between the existing and input variables.
+        """
+
+        self._validate(self, req_dim)
+
+        # add check for existing file?
+        assert newfile != None, "You must provide an input file of the dataset to add."
+        assert variable != None, "You must specify which variable you'd like to add"
+
+        newdset = xr.open_dataset(newfile)
+        newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y'])
+        self._xrds[varname] = newvar
+        
+
+    def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime','geoid']}):
+        """
+        Get geoid layer from BedMachine (you must have the NetCDF stored locally; filename is hardcoded in)
+        and apply to all elevation values.
+        Adds 'geoid_offset' keyword to "offsets" attribute
+        """
+
+        try:
+            values = (self._xrds.attrs['offset_names'])
+            assert 'geoid_offset' not in values, "You've already applied the geoid offset!"
+            values = list([values])+ ['geoid_offset']
+        except KeyError:
+            self._xrds.attrs['offset_names'] = ()
+            values = ['geoid_offset']
+
+        self._validate(self, req_dim, req_vars)
+
+        self.get_netcdf(newfile='/Users/jessica/mapping/datasets/160281892/BedMachineGreenland-2017-09-20.nc',
+                              variable='geoid', varname='geoid')
+        
+
+        self._xrds['elevation'] = self._xrds.elevation - self._xrds.geoid
+
+        self._xrds.attrs['offset_names'] = values
+
+        return self._xrds
+
+
+    def to_geoid_pixel(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime']}, geoid=None):
         """
         Change the elevation values to be relative to the geoid rather than the ellipsoid
         (as ArcticDEM data comes) by iterating over each pixel (over time).
@@ -276,89 +322,3 @@ class BergXR:
                         max_tidal_ht = ('dtime', [vals[2]]))
 
         return gb
-
-
-    # DevGoal: A big way to improve this code (efficiency) would be to only iterate through the icebergs 
-    # (and convert them to polygons) once, rather than multiple times in different places (_get_icebergs_wrapper and raster_ops.threshold
-    # and build_gdf)
-    # The challenge is what datatype to keep them stored as (Polygon vs array)
-    def get_icebergs(self, req_dim=['dtime','x','y'], 
-                    req_vars={'elevation':['x','y','dtime']}, threshold=None):
-        '''
-        Get iceberg polygons for each DEM in the dataset
-        '''
-
-        self._validate(self, req_dim, req_vars)
-        
-        if threshold:
-            self._xrds.attrs['berg_threshold'] = threshold
-        else:
-            print("Remember to set a desired threshold!")
-
-        self._xrds=self._xrds.groupby('dtime', squeeze=False).apply(self._get_icebergs_wrapper)
-
-        return self._xrds
-
-    def _get_icebergs_wrapper(self,gb):
-        """
-        XArray wrapper for the raster_ops.poly_from_thresh function to be able to use it with
-        `.groupby().apply()`. Filters polygons returned by raster_ops.poly_from_thresh to remove
-        those adjacent to land or too small (e.g. only a few pixels)
-
-        Note all of these operations assume that all inputs are in the same crs
-        
-        Parameters
-        ----------
-        gb : groupby object
-            Must contain the fields x, y, elev...
-        """
-
-        x = gb.x
-        y = gb.y
-        elev = gb.elevation.isel(dtime=0)
-        
-        polys = raster_ops.poly_from_thresh(x,y,elev,gb.attrs['berg_threshold'])
-
-        # generalize this to search for any _mask attribute...
-        try: mask_poly = gb.attrs['land_mask']
-        except:
-            KeyError
-        
-        try:
-            res = gb.attrs['res']
-            area = res[0]*res[1]
-        except:
-            KeyError
-        
-        # DevGoal: probably some of this should check crs and be done at another stage of processing...
-        if mask_poly or area:
-            filtered_polys = []
-            area_flag = False
-            for polyarr in polys:
-                poly = shpPolygon(polyarr)
-
-                # remove the polygon if it is adjacent to land
-                if mask_poly:
-                    if poly.intersects(mask_poly):
-                        # print('polygon intersects land')
-                        continue
-
-                # remove the polygon if it's too small (e.g. three pixels)
-                if area:
-                    if poly.area < area*3:
-                        area_flag=True
-                        continue
-                
-                filtered_polys.append(polyarr)
-                
-        else:
-            filtered_polys=polys
-        
-        if area_flag==True:
-            print('one or more polygons with area less than 3 pixels were removed')
-
-        bergs=pd.Series({'bergs':filtered_polys}, dtype='object')
-
-        return gb.assign(berg_outlines=('dtime',bergs))
-
-

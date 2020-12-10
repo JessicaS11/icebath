@@ -110,7 +110,7 @@ class BergGDF:
             self._gdf.at[datarow.Index,'filtered_draft'] = icalcs.filter_vals(dft, num_mad=3)
 
   
-    def calc_medmaxmad(self, column=''):
+    def calc_rowwise_medmaxmad(self, column=''):
         """
         Compute median, maximum, and median absolute devation from an array of values
         specified by the string of the input column name and add columns to hold the results.

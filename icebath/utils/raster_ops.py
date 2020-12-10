@@ -3,6 +3,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pyproj
+from skimage import feature, morphology, filters, segmentation
+from scipy import ndimage
 
 
 def crs2crs(incrs, outcrs, x, y, z):
@@ -54,11 +56,18 @@ def poly_from_thresh(x,y,elev,threshold):
 
     '''
 
-    elev = np.nan_to_num(elev, nan=0)
+    elev = elev#np.nan_to_num(elev, nan=0)
+    # A particular challenge of using contour and handling nans in this application is that:
+    # if nans are 0s, no data regions are outlined. It's more accurate to leave the nans
+    # (which are handled by contour) and get fewer polygons. However, then the challenge arises
+    # that in many DEMs, sea level > threshold by a lot, so we don't pick up icebergs because there's
+    # not a large enough elevation difference in the pixels that ARE there for contour to pick up.
     X,Y = np.meshgrid(x,y)
     fig = plt.figure()
     cs = plt.contour(X, Y, elev, 'k-', levels=[threshold])
     # Can use collections[0] so long as you only have one threshold value. Otherwise you have to iterate through the collections.
+    # print(cs.collections[0].get_alpha())
+    # cs.collections.get_alpha()
     p = cs.collections[0].get_paths()
     polygons = []
     
@@ -71,8 +80,12 @@ def poly_from_thresh(x,y,elev,threshold):
     # for pi in range(len(p)):
     #     polygon = p[pi].vertices
     # It is also recommended to now use scikit-image for contour finding (skimage.measure.find_contours)
+    # 
 
     for contour_path in p: 
+        # try to get the alpha value or otherwise determine if the polygon traces a nan region
+        # print(contour_path.get_alpha)
+
         # The first polygon in the path is the main one, the following ones are "holes"
         for ncp,cp in enumerate(contour_path.to_polygons(closed_only=False)):
             if ncp>0:
@@ -82,8 +95,75 @@ def poly_from_thresh(x,y,elev,threshold):
             if cp[-1,0] == cp[0,0] and cp[-1,1] == cp[0,1]:
                 polygons.append(cp)
 
-    # print(len(polygons))
-    # print(type(polygons))
+
+    print(len(polygons))
     plt.close(fig)
 
     return polygons
+
+
+def labeled_from_edges(elev,sigma,resolution,min_area, flipax=[]):
+    '''
+    Create an edge map, refine it, and use it to get a list of polygon vertices
+
+    This function does not consider or deal with projections.
+
+    Parameters
+    ----------
+
+    '''
+
+    # Compute the Canny filter
+    edges = feature.canny(elev, sigma=sigma)
+
+    filled_edges = ndimage.binary_fill_holes(edges)
+
+    # remove small objects and polyganize
+    # if we assume a minimum area of 4000m2, then we need to divide that by the spatial 
+    # resolution (2x2=4m2) to get the min size
+    # Note: trying to polygonize the edge map directly is computationally intensive
+    labeled,count = ndimage.label(morphology.remove_small_objects(
+        filled_edges, min_size=min_area/(resolution**2), connectivity=1))#[0] # 2nd output is num of objects
+    # Note: can do the remove small objects in place with `in_place=False`
+    # print(count)
+
+    # flip the array, if needed
+    labeled = np.flip(labeled, axis=flipax)
+    
+    return labeled
+
+def labeled_from_segmentation(elev, markers, resolution, min_area, flipax=[]):
+    """
+    Apply some image filters, provide seed points using value extremes, and
+    segment the image using a watershed analysis of the elevation map.
+
+    This function does not consider or deal with projections.
+
+    Parameters
+    ----------
+
+    markers: list
+            ordered list with lower and upper values for seeding the segmentation
+    """
+
+    # Compute the "elevation map"
+    elev_map = filters.sobel(elev)
+
+    # create seed markers and mask them
+    marker_arr = np.zeros_like(elev)
+    marker_arr[elev < markers[0]] = 1
+    marker_arr[elev > markers[1]] = 2
+    marker_arr = np.ma.array(marker_arr, mask=np.isnan(elev))
+
+    # create a watershed segmentation
+    segmented = segmentation.watershed(elev_map, marker_arr)
+
+    # fill in the segmentation and label the features
+    filled_seg = ndimage.binary_fill_holes(segmented - 1)
+    labeled, count = ndimage.label(morphology.remove_small_objects(
+        filled_seg, min_size=min_area/(resolution**2), connectivity=1))#[0]
+
+    # flip the array, if needed
+    labeled = np.flip(labeled, axis=flipax)
+    
+    return labeled

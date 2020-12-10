@@ -23,10 +23,10 @@ def xrds_from_dir(path=None):
     for f in files:
         print(f)
         try:
-            # darrays[i] = read_DEM(path+f)
-            darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
+            darrays[i] = read_DEM(path+f)
+            # darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
         except RasterioIOError:
-            print("You need to create geoid versions of your DEMs")
+            print("RasterioIOError on your input file")
             break
         
         metaf = f.rpartition("_dem.tif")[0] + "_mdf.txt"
@@ -51,7 +51,7 @@ def xrds_from_dir(path=None):
     attr = darr.attrs
     ds = darr.to_dataset()
     ds.attrs = attr
-    ds.attrs['offset_names'] = ('geoid_offset')
+    # ds.attrs['offset_names'] = ('geoid_offset')
     attr=None
     # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
     # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
@@ -97,7 +97,10 @@ def read_DEM(fn=None):
 
     # the gdalwarp geoid files have this extra attribute in the geoTiff, which when brought in
     # ultimately causes a "__module__" related error when trying to plot with hvplot
-    del darr.attrs["units"]   
+    try:
+        del darr.attrs["units"] 
+    except KeyError:
+        pass
 
     return darr
 
