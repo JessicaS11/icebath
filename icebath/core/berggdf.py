@@ -6,6 +6,7 @@ import ogr
 import os
 import fnmatch
 import geopandas as gpd
+import xarray as xr
 from icebath.core import fjord_props as fjord
 from icebath.core import fl_ice_calcs as icalcs
 
@@ -171,7 +172,14 @@ class BergGDF:
         Get water depths where measurements are available
         """
 
-        print('not yet implemented')
+        """
+        STEPS
+        1. Bring in measurements from other datasource
+        2. Extract measurements (pixels) for iceberg polygons from raster
+        3. Compute measured water depth and uncertainty
+        """
+
+        assert type(source)==xr.core.dataset.Dataset, "You must input an Xarray dataset from which to get measured values"
 
 
     

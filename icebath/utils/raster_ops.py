@@ -156,12 +156,17 @@ def labeled_from_segmentation(elev, markers, resolution, min_area, flipax=[]):
     marker_arr = np.ma.array(marker_arr, mask=np.isnan(elev))
 
     # create a watershed segmentation
-    segmented = segmentation.watershed(elev_map, marker_arr)
+    segmented = segmentation.watershed(elev_map, markers=marker_arr, mask=~np.isnan(elev))
+    segmented[segmented<=1] = 0
+    segmented[segmented==2] = 1
 
     # fill in the segmentation and label the features
-    filled_seg = ndimage.binary_fill_holes(segmented - 1)
-    labeled, count = ndimage.label(morphology.remove_small_objects(
-        filled_seg, min_size=min_area/(resolution**2), connectivity=1))#[0]
+    filled_seg = ndimage.binary_fill_holes(segmented)
+    no_sm_bergs = morphology.remove_small_objects(filled_seg, min_size=min_area/(resolution**2), connectivity=1)
+    lg_bergs = morphology.remove_small_objects(filled_seg, min_size=1000000/(resolution**2), connectivity=1)
+    filled_bergs = np.logical_xor(no_sm_bergs, lg_bergs)
+
+    labeled=ndimage.label(filled_bergs)[0]
 
     # flip the array, if needed
     labeled = np.flip(labeled, axis=flipax)

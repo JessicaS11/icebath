@@ -3,6 +3,7 @@ import numpy as np
 import os
 import geopandas as gpd
 import rasterio
+import rioxarray
 from shapely.geometry import Polygon
 import xarray as xr
 import warnings
@@ -39,6 +40,14 @@ def gdf_of_bergs(onedem):
     # threshold=60
     # bergs = raster_ops.poly_from_thresh(onedem.x, onedem.y, onedem.elevation, threshold)
     
+    try:
+        onedem.elevation.attrs['crs'] = onedem.attrs['crs']
+    except KeyError:
+        try:
+            onedem.elevation.attrs['proj4'] = onedem.attrs['proj4']
+        except KeyError:
+            print("Your input DEM does not have a CRS attribute")
+
     trans=onedem.attrs['transform']
     flipax=[]
     if trans[0] < 0:
@@ -51,11 +60,15 @@ def gdf_of_bergs(onedem):
     labeled_arr = raster_ops.labeled_from_segmentation(onedem.elevation.values, [3,10], resolution=res, min_area=4000, flipax=flipax)
     print("Got labeled raster of potential icebergs for an image")
 
+    print(np.shape(labeled_arr))
+
     # create iceberg polygons, excluding icebergs that don't meet the requirements
     # Note: features.shapes returns a generator. However, if we try to iterate through it with a for loop, the StopIteration exception
     # is not passed up into the for loop and execution hangs when it hits the end of the for loop withouth completing the function
     poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=trans))[:-1]
     
+    print(len(poss_bergs))
+
     bergs = []
     elevs = []
     sl_adjs = []
@@ -80,14 +93,24 @@ def gdf_of_bergs(onedem):
         if berg.area > 1000000:
             print('"iceberg" too large. Removing...')
             continue
-        
+
         # get the raster pixel values for the iceberg
         # bounds: (minx, miny, maxx, maxy)
         bound_box = berg.bounds
         # print(bound_box)
         
+        # print(onedem['elevation'])
+        # print(type(onedem['elevation']))
+
         vals = onedem['elevation'].sel(x=slice(bound_box[0], bound_box[2]),
                                         y=slice(bound_box[1], bound_box[3]))
+        # print(vals)
+        # print(len(vals))
+
+        # vals = onedem['elevation'].rio.clip([berg], crs=onedem.attrs['crs']).values
+        # print(vals)
+        # print(len(vals))
+
         vals=vals.values.flatten()
 
         # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
@@ -117,6 +140,14 @@ def gdf_of_bergs(onedem):
         bergs.append(berg)
         elevs.append(vals)
         sl_adjs.append(sl_adj)
+
+    # delete generator object so no issues between DEMs
+    try:
+        del poss_bergs
+    except NameError:
+        pass
+    
+    print(len(bergs))
 
     temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':bergs}, geometry='berg_poly')
 
