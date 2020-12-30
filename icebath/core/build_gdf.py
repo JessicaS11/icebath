@@ -90,51 +90,43 @@ def gdf_of_bergs(onedem):
         #     continue
 
         # skip bergs that are too large to realistically be just one berg
-        if berg.area > 1000000:
-            print('"iceberg" too large. Removing...')
-            continue
+        # these should now be removed during the iceberg list generation from segmentation step
+        # if berg.area > 1000000:
+        #     print('"iceberg" too large. Removing...')
+        #     continue
 
-        # get the raster pixel values for the iceberg
+        # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
         bound_box = berg.bounds
         # print(bound_box)
-        
-        # print(onedem['elevation'])
-        # print(type(onedem['elevation']))
-
-        vals = onedem['elevation'].sel(x=slice(bound_box[0], bound_box[2]),
-                                        y=slice(bound_box[1], bound_box[3]))
-        # print(vals)
-        # print(len(vals))
-
-        # vals = onedem['elevation'].rio.clip([berg], crs=onedem.attrs['crs']).values
-        # print(vals)
-        # print(len(vals))
-
-        vals=vals.values.flatten()
+    
+        # 10 pixel buffer
+        buffer = 10 * res
+        berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
+                                        y=slice(bound_box[1]-buffer, bound_box[3]+buffer))
+                                        
+        # extract the iceberg elevation values
+        vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
 
         # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
         if np.any(vals > 500):
             print('"iceberg" too tall. Removing...')
             continue
 
-
         # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
         vals = vals[~np.isnan(vals)]
-        
-        # get the regional elevation values and determine the sea level adjustment
-        # 10 pixel buffer
-        buffer = 10 * res
-        bvals = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
-                                        y=slice(bound_box[1]-buffer, bound_box[3]+buffer)).values.flatten()
+
+        # get the regional elevation values and use to determine the sea level adjustment
+        bvals = reg_dem.values.flatten()
         bvals=bvals[~np.isnan(bvals)]
 
         sea = [val for val in bvals if val not in vals]
         # print(sea)
         # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
-        #add a check here to make sure the sea level adjustment is reasonable
+        # add a check here to make sure the sea level adjustment is reasonable
         sl_adj = np.nanmedian(sea)
-        #apply the sea level adjustment to the elevation values
+        # print(sl_adj)
+        # apply the sea level adjustment to the elevation values
         vals = icalcs.apply_decrease_offset(vals, sl_adj)
 
         bergs.append(berg)
