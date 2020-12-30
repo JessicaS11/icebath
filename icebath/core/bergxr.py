@@ -189,7 +189,6 @@ class BergXR:
             assert 'geoid_offset' not in values, "You've already applied the geoid offset!"
             values = list([values])+ ['geoid_offset']
         except KeyError:
-            self._xrds.attrs['offset_names'] = ()
             values = ['geoid_offset']
 
         self._validate(self, req_dim, req_vars)
@@ -219,7 +218,6 @@ class BergXR:
             assert 'geoid_offset' not in values, "You've already applied the geoid offset!"
             values = list([values])+ ['geoid_offset']
         except KeyError:
-            self._xrds.attrs['offset_names'] = ()
             values = ['geoid_offset']
 
         self._validate(self, req_dim, req_vars)
@@ -274,11 +272,11 @@ class BergXR:
 
         try:
             values = (self._xrds.attrs['offset_names'])
+            print("it thinks the attr is there?")
             assert 'tidal_corr' not in values, "You've already applied a tidal correction!"
-            values = list([values])+ ['tidal_corr']
+            values = list(values)+ ['tidal_corr']
         except KeyError:
-            # self._xrds.attrs['offset_names'] = ()
-            values = ('tidal_corr')
+            values = ['tidal_corr']
         
         self._validate(self, req_dim, req_vars)
         
