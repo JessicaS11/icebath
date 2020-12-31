@@ -272,7 +272,6 @@ class BergXR:
 
         try:
             values = (self._xrds.attrs['offset_names'])
-            print("it thinks the attr is there?")
             assert 'tidal_corr' not in values, "You've already applied a tidal correction!"
             values = list(values)+ ['tidal_corr']
         except KeyError:

@@ -117,7 +117,7 @@ def gdf_of_bergs(onedem):
         vals = vals[~np.isnan(vals)]
 
         # get the regional elevation values and use to determine the sea level adjustment
-        bvals = reg_dem.values.flatten()
+        bvals = berg_dem.values.flatten()
         bvals=bvals[~np.isnan(bvals)]
 
         sea = [val for val in bvals if val not in vals]

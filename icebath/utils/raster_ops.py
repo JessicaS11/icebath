@@ -147,13 +147,13 @@ def labeled_from_segmentation(elev, markers, resolution, min_area, flipax=[]):
     """
 
     # Compute the "elevation map"
-    elev_map = filters.sobel(elev)
+    elev_map = filters.sobel(elev, mask=~np.isnan(elev))
 
     # create seed markers and mask them
     marker_arr = np.zeros_like(elev)
     marker_arr[elev < markers[0]] = 1
     marker_arr[elev > markers[1]] = 2
-    marker_arr = np.ma.array(marker_arr, mask=np.isnan(elev))
+    # marker_arr = np.ma.array(marker_arr, mask=np.isnan(elev))
 
     # create a watershed segmentation
     segmented = segmentation.watershed(elev_map, markers=marker_arr, mask=~np.isnan(elev))
