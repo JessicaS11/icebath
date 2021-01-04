@@ -4,11 +4,12 @@ import os
 import geopandas as gpd
 import rasterio
 import rioxarray
+import scipy.stats as stats
 from shapely.geometry import Polygon
 import xarray as xr
 import warnings
 
-# from icebath.core import fjord_props
+from icebath.core import fjord_props
 from icebath.core import fl_ice_calcs as icalcs
 from icebath.utils import raster_ops
 
@@ -55,9 +56,16 @@ def gdf_of_bergs(onedem):
     if trans[4] < 0:
         flipax.append(0)
 
+    # TODO: generalize the fjord input
+    fjord='JI'
+    max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
+    min_area = fjord_props.get_min_berg_area(fjord)
+
+
+
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
     # labeled_arr = raster_ops.labeled_from_edges(onedem.elevation.values, sigma=6, resolution=res, min_area=4000, flipax=flipax)
-    labeled_arr = raster_ops.labeled_from_segmentation(onedem.elevation.values, [3,10], resolution=res, min_area=4000, flipax=flipax)
+    labeled_arr = raster_ops.labeled_from_segmentation(onedem.elevation.values, [3,10], resolution=res, min_area=min_area, flipax=flipax)
     print("Got labeled raster of potential icebergs for an image")
 
     print(np.shape(labeled_arr))
@@ -109,7 +117,7 @@ def gdf_of_bergs(onedem):
         vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
 
         # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
-        if np.any(vals > 500):
+        if np.nanmedian(vals) > max_freebd:  # units in meters, matching those of the DEM elevation
             print('"iceberg" too tall. Removing...')
             continue
 
@@ -126,6 +134,13 @@ def gdf_of_bergs(onedem):
         # add a check here to make sure the sea level adjustment is reasonable
         sl_adj = np.nanmedian(sea)
         # print(sl_adj)
+        
+        # check that the median freeboard elevation (pre-filtering) is at least 5 m above sea level
+        if abs(np.nanmedian(vals)-sl_adj) < 5:
+            print('median iceberg freeboard less than 5 m')
+            continue
+
+        # print(np.nanmedian(vals)-sl_adj)
         # apply the sea level adjustment to the elevation values
         vals = icalcs.apply_decrease_offset(vals, sl_adj)
 
@@ -142,10 +157,14 @@ def gdf_of_bergs(onedem):
     print(len(bergs))
 
     temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':bergs}, geometry='berg_poly')
-
-    # TODO: generalize the fjord input
-    fjord='JI'
     
+    # filter out "icebergs" that have sea level adjustments outside the median +/- two times the median absolute deviation
+    sl_adj_med = np.nanmedian(temp_berg_df.sl_adjust)
+    sl_adj_mad = stats.median_abs_deviation(temp_berg_df.sl_adjust, nan_policy='omit')
+
+    temp_berg_df = temp_berg_df[(temp_berg_df['sl_adjust'] > sl_adj_med - 2*sl_adj_mad) & 
+                                (temp_berg_df['sl_adjust'] < sl_adj_med + 2*sl_adj_mad)]
+
     # add values that are same for all icebergs in DEM
     names = ['fjord', 'date', 'tidal_ht_offset', 'tidal_ht_min', 'tidal_ht_max']
     col_val = [fjord, onedem['dtime'].values, onedem['tidal_corr'].item(), onedem['min_tidal_ht'].item(), onedem['max_tidal_ht'].item()]

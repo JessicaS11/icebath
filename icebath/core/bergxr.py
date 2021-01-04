@@ -130,6 +130,9 @@ class BergXR:
         #confirm and correct projection if needed
         shpfl = shpfl.to_crs(self._xrds.attrs['crs'])
 
+        # apply buffer since mask isn't exact
+        shpfl['geometry'] = shpfl.buffer(5)
+
         mask = rasterio.features.geometry_mask(shpfl.geometry,
                                          out_shape = (len(self._xrds.y), len(self._xrds.x)),
                                          transform= self._xrds.attrs['transform'],

@@ -122,7 +122,7 @@ def labeled_from_edges(elev,sigma,resolution,min_area, flipax=[]):
     # if we assume a minimum area of 4000m2, then we need to divide that by the spatial 
     # resolution (2x2=4m2) to get the min size
     # Note: trying to polygonize the edge map directly is computationally intensive
-    labeled,count = ndimage.label(morphology.remove_small_objects(
+    labeled,_ = ndimage.label(morphology.remove_small_objects(
         filled_edges, min_size=min_area/(resolution**2), connectivity=1))#[0] # 2nd output is num of objects
     # Note: can do the remove small objects in place with `in_place=False`
     # print(count)
