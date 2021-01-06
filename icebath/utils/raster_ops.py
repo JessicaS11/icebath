@@ -162,8 +162,8 @@ def labeled_from_segmentation(elev, markers, resolution, min_area, flipax=[]):
 
     # fill in the segmentation and label the features
     filled_seg = ndimage.binary_fill_holes(segmented)
-    no_sm_bergs = morphology.remove_small_objects(filled_seg, min_size=min_area/(resolution**2), connectivity=1)
-    lg_bergs = morphology.remove_small_objects(filled_seg, min_size=1000000/(resolution**2), connectivity=1)
+    no_sm_bergs = morphology.remove_small_objects(filled_seg, min_size=min_area/(resolution**2.0), connectivity=1)
+    lg_bergs = morphology.remove_small_objects(filled_seg, min_size=1000000/(resolution**2.0), connectivity=1)
     filled_bergs = np.logical_xor(no_sm_bergs, lg_bergs)
 
     labeled=ndimage.label(filled_bergs)[0]
@@ -171,4 +171,71 @@ def labeled_from_segmentation(elev, markers, resolution, min_area, flipax=[]):
     # flip the array, if needed
     labeled = np.flip(labeled, axis=flipax)
     
+    return labeled
+
+def test_feature(feat):
+    # print(feat)
+    bord_px = np.count_nonzero(feat>-888)
+    nan_px = np.count_nonzero(np.isnan(feat)) # (feat==-999)
+
+    print('feature count values')
+    print(bord_px)
+    print(nan_px)
+    print(np.size(feat))
+    # print(np.unique(feat))
+    
+    if bord_px==0 or np.float(nan_px)/bord_px >= 0.5:
+        print('too many nan')
+        return 0
+    else:
+        print('good berg')
+        return 1
+
+def border_filtering(feature_arr, input_arr, flipax=[]):
+    """
+    Dilate the potential iceberg features and remove those that have
+    more than 50% of their border pixels on a no-data boundary.
+
+    This function is modified from JessicaS11/iceberg_delin/icebergdelineation.py
+    
+    Parameters
+    ----------
+
+    feature_arr: ndarray, int
+                Array of labeled features (e.g. from ndimage.label) to check the borders of
+    input_arr: ndarray, float or int
+                Array of original or classed data, same size and shape as feature_arr,
+                that will be used to get border pixel values 
+    """
+
+    # make original features a dummy value in the dataset so they're easy to not count
+    # print(feature_arr)
+    # print(np.shape(feature_arr))
+    # print(feature_arr[3500:3550][3450:3550])
+    # print('look for nans in input_arr')
+    # print(np.any(np.isnan(input_arr)))
+    # print(np.any(np.isnan(feature_arr)))
+    # print(np.unique(input_arr))
+    input_arr[feature_arr>0] = -888 # features masked in original data
+    # input_arr[np.isnan(input_arr)] = -999 # nodata values masked in original data
+
+    # print(np.any(np.isnan(input_arr)))
+    # dilate the features using a 1 pixel plus structuring element
+    dilated_feats = ndimage.grey_dilation(feature_arr, 
+                                            structure=ndimage.generate_binary_structure(2,1)).astype(feature_arr.dtype)
+    # print(dilated_feats[3500:3550][3450:3550])
+    # iterate through the features and determine if each one should be included (1) or not (0)
+    num_feats_rng = np.arange(1, np.nanmax(dilated_feats)+1)
+    keep_feat_idx = ndimage.labeled_comprehension(input_arr, dilated_feats, num_feats_rng, test_feature, int, -1)
+
+    # generate a keep_feature_array binary "mask" that matches the original feature_arr shape
+    sort_idx = np.argsort(num_feats_rng)
+    keep_feat_arr = keep_feat_idx[sort_idx][np.searchsorted(num_feats_rng, dilated_feats, sorter=sort_idx)]
+
+    # apply the mask to remove unwanted features
+    labeled = keep_feat_arr*feature_arr
+
+    # flip the array, if needed
+    labeled = np.flip(labeled, axis=flipax)
+
     return labeled

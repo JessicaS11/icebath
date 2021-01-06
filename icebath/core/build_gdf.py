@@ -61,18 +61,31 @@ def gdf_of_bergs(onedem):
     max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
     min_area = fjord_props.get_min_berg_area(fjord)
 
-
+    # print(min_area)
+    # min_area = 4000
+    # print(min_area)
 
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
-    # labeled_arr = raster_ops.labeled_from_edges(onedem.elevation.values, sigma=6, resolution=res, min_area=4000, flipax=flipax)
-    labeled_arr = raster_ops.labeled_from_segmentation(onedem.elevation.values, [3,10], resolution=res, min_area=min_area, flipax=flipax)
+    
+    # create copy of elevation values so original dataset values are not impacted by image manipulations
+    # and positive/negative coordinate systems can be ignored (note flipax=[] below)
+    elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
+    flipax=[]
+
+    # generate a labeled array of potential iceberg features, excluding those that are too large or small
+    seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=flipax)
     print("Got labeled raster of potential icebergs for an image")
+    print(np.unique(seglabeled_arr))
 
-    print(np.shape(labeled_arr))
-
-    # create iceberg polygons, excluding icebergs that don't meet the requirements
+    # remove features whose borders are >50% no data values (i.e. the "iceberg" edge is really a DEM edge)
+    labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=flipax).astype(seglabeled_arr.dtype)
+    # apparently rasterio can't handle int64 inputs, which is what border_filtering returns
+    # labeled_arr = seglabeled_arr
+    # create iceberg polygons and put in a geodataframe, excluding icebergs that don't meet the requirements
     # Note: features.shapes returns a generator. However, if we try to iterate through it with a for loop, the StopIteration exception
-    # is not passed up into the for loop and execution hangs when it hits the end of the for loop withouth completing the function
+    # is not passed up into the for loop and execution hangs when it hits the end of the for loop without completing the function
+    
+    print(np.unique(labeled_arr))
     poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=trans))[:-1]
     
     print(len(poss_bergs))
@@ -90,18 +103,6 @@ def gdf_of_bergs(onedem):
         # remove holes
         if berg.interiors:
             berg = Polygon(list(berg.exterior.coords))
-
-        # too-small polygons are eliminated in the edge map labeling step (raster_ops.labeled_from_edges)
-        # # skip too-small bergs
-        # minarea = 100
-        # if berg.area < minarea:
-        #     continue
-
-        # skip bergs that are too large to realistically be just one berg
-        # these should now be removed during the iceberg list generation from segmentation step
-        # if berg.area > 1000000:
-        #     print('"iceberg" too large. Removing...')
-        #     continue
 
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
@@ -129,9 +130,7 @@ def gdf_of_bergs(onedem):
         bvals=bvals[~np.isnan(bvals)]
 
         sea = [val for val in bvals if val not in vals]
-        # print(sea)
         # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
-        # add a check here to make sure the sea level adjustment is reasonable
         sl_adj = np.nanmedian(sea)
         # print(sl_adj)
         
