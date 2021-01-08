@@ -125,7 +125,6 @@ def labeled_from_edges(elev,sigma,resolution,min_area, flipax=[]):
     labeled,_ = ndimage.label(morphology.remove_small_objects(
         filled_edges, min_size=min_area/(resolution**2), connectivity=1))#[0] # 2nd output is num of objects
     # Note: can do the remove small objects in place with `in_place=False`
-    # print(count)
 
     # flip the array, if needed
     labeled = np.flip(labeled, axis=flipax)
@@ -156,7 +155,8 @@ def labeled_from_segmentation(elev, markers, resolution, min_area, flipax=[]):
     # marker_arr = np.ma.array(marker_arr, mask=np.isnan(elev))
 
     # create a watershed segmentation
-    segmented = segmentation.watershed(elev_map, markers=marker_arr, mask=~np.isnan(elev))
+    segmented = segmentation.watershed(elev_map, markers=marker_arr, mask=~np.isnan(elev),
+                                        connectivity=np.ndarray([1,1]), offset=None, compactness=0, watershed_line=False)
     segmented[segmented<=1] = 0
     segmented[segmented==2] = 1
 
@@ -178,17 +178,15 @@ def test_feature(feat):
     bord_px = np.count_nonzero(feat>-888)
     nan_px = np.count_nonzero(np.isnan(feat)) # (feat==-999)
 
-    print('feature count values')
-    print(bord_px)
-    print(nan_px)
-    print(np.size(feat))
-    # print(np.unique(feat))
+    # print('feature count values')
+    # print(bord_px)
+    # print(nan_px)
     
     if bord_px==0 or np.float(nan_px)/bord_px >= 0.5:
-        print('too many nan')
+        # print('too many nan')
         return 0
     else:
-        print('good berg')
+        # print('good berg')
         return 1
 
 def border_filtering(feature_arr, input_arr, flipax=[]):
@@ -209,21 +207,12 @@ def border_filtering(feature_arr, input_arr, flipax=[]):
     """
 
     # make original features a dummy value in the dataset so they're easy to not count
-    # print(feature_arr)
-    # print(np.shape(feature_arr))
-    # print(feature_arr[3500:3550][3450:3550])
-    # print('look for nans in input_arr')
-    # print(np.any(np.isnan(input_arr)))
-    # print(np.any(np.isnan(feature_arr)))
-    # print(np.unique(input_arr))
     input_arr[feature_arr>0] = -888 # features masked in original data
-    # input_arr[np.isnan(input_arr)] = -999 # nodata values masked in original data
 
-    # print(np.any(np.isnan(input_arr)))
     # dilate the features using a 1 pixel plus structuring element
     dilated_feats = ndimage.grey_dilation(feature_arr, 
                                             structure=ndimage.generate_binary_structure(2,1)).astype(feature_arr.dtype)
-    # print(dilated_feats[3500:3550][3450:3550])
+
     # iterate through the features and determine if each one should be included (1) or not (0)
     num_feats_rng = np.arange(1, np.nanmax(dilated_feats)+1)
     keep_feat_idx = ndimage.labeled_comprehension(input_arr, dilated_feats, num_feats_rng, test_feature, int, -1)
