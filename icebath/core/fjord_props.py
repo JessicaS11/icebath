@@ -23,3 +23,34 @@ def get_mouth_coords(fjord):
         return [x.pop(fjord), y.pop(fjord)]
     except KeyError:
         "The current fjord does not have a location entry"
+
+
+def get_min_berg_area(fjord):
+    """
+    Get a minimum iceberg area for the given fjord
+    """
+
+    area = {"JI": 50000, "UP":4000}
+
+    try:
+        return area.pop(fjord)
+    except KeyError:
+        "The current fjord does not have a location entry - using a default value!"
+        return 5000
+
+
+def get_ice_thickness(fjord):
+    """
+    Get the approximate ice thickness (in m) at the grounding line for a given fjord
+    """
+
+    thickness = {"JI": 1500}
+
+    try:
+        return thickness.pop(fjord)
+    except KeyError:
+        "The current fjord does not have a location entry - using a default value!"
+        return 1500
+
+
+

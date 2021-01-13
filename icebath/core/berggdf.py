@@ -6,8 +6,13 @@ import ogr
 import os
 import fnmatch
 import geopandas as gpd
+import rioxarray
+from rioxarray.rioxarray import NoDataInBounds
+import xarray as xr
+
 from icebath.core import fjord_props as fjord
 from icebath.core import fl_ice_calcs as icalcs
+from icebath.core import bergxr
 
 
 """
@@ -165,14 +170,57 @@ class BergGDF:
             self._gdf.at[datarow.Index, column+'_err'] = err
    
 
-
-    def get_meas_wat_depth(self, source):
+    # ToDo: generalize this function to be for any input geometry and raster (with matching CRS)
+    @staticmethod
+    def get_px_vals(datarow, geom_name, raster, crs=None):
+        '''
+        Extract pixel values where the input geometry overlaps a raster. It speeds the process up by first
+        subsetting the raster to the geometry bounds before extracting each overlapping pixel.
+        Currently, it's assumed that the CRS of all inputs match.
+        The input geometry is assumed to be a row of a GeoDataFrame, with geometry in column "geom_name"
+        
+        Parameters:
+            geom_name : string
+                        string name of the geometry column (cannot use built-in 'geometry') because `apply()`
+                        turns it into a non-geo dataseries - currently noted as a bug with rioxarray (2021-01-11)
+            raster : rioDataArray
+        '''
+        # Bug (rioxarray): rasterio.rio.set_crs and clip box work, but just using raster.rio.clip 
+        # with a specified crs (and bounds as the polygon) gives a crs error. Huh?
+        raster.rio.set_crs(crs)
+        try:
+            subset_raster = raster.rio.clip_box(*datarow[geom_name].bounds)
+            # subset_raster = raster.rio.clip([datarow[geom_name].bounds], crs=crs)
+            vals = subset_raster.rio.clip([datarow[geom_name]], crs=crs).values.flatten()
+            # rioxarray introduces a fill value, regardless of the input nodata setup
+            vals[vals==-9999] = np.nan
+        except NoDataInBounds:
+            print('no data')
+            vals = np.nan
+        return vals
+      
+    # ToDo: generalize the variable/variable names to the function level (so not so BedMachine specific)
+    def get_meas_wat_depth(self, dataset, src_fl):
         """
         Get water depths where measurements are available
         """
 
-        print('not yet implemented')
+        assert type(dataset)==xr.core.dataset.Dataset, "You must input an Xarray dataset from which to get measured values"
 
+        # ToDo: add check to see if the layers are already there...
+        # Note: assumes compatible CRS systems
+        dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="bed", varname="bmach_bed")
+        dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="errbed", varname="bmach_errbed")
 
-    
+        dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_bed != -9999)
+        dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_errbed != -9999)
 
+        # print(dataset['bmach_bed'])
+
+        # Note: rioxarray does not carry crs info from the dataset to individual variables
+        px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
+                                    args=('berg_poly', dataset['bmach_bed']), **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
+        self._gdf['meas_depth_med'] = px_vals.apply(np.nanmedian)
+
+        px_vals = self._gdf.apply(self.get_px_vals, axis=1, args=('berg_poly',dataset['bmach_errbed']), **{"crs": dataset.attrs['crs']})
+        self._gdf['meas_depth_err'] = px_vals.apply(np.nanmedian)

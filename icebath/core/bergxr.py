@@ -130,6 +130,9 @@ class BergXR:
         #confirm and correct projection if needed
         shpfl = shpfl.to_crs(self._xrds.attrs['crs'])
 
+        # apply buffer since mask isn't exact
+        shpfl['geometry'] = shpfl.buffer(5)
+
         mask = rasterio.features.geometry_mask(shpfl.geometry,
                                          out_shape = (len(self._xrds.y), len(self._xrds.x)),
                                          transform= self._xrds.attrs['transform'],
@@ -159,7 +162,7 @@ class BergXR:
         # return self._xrds
 
 
-    def get_netcdf(self, req_dim=['x','y'], newfile=None, variable=None, varname=None):
+    def get_new_var_from_file(self, req_dim=['x','y'], newfile=None, variable=None, varname=None):
         """
         Get info from another dataset (NetCDF) and resample it and add it to the dataset.
         Note: this requires you have a local copy of the NetCDF you are using.
@@ -168,11 +171,14 @@ class BergXR:
 
         self._validate(self, req_dim)
 
+        print("Note that the new file is assumed to have the same CRS as the dataset to which it is being added")
+
         # add check for existing file?
         assert newfile != None, "You must provide an input file of the dataset to add."
         assert variable != None, "You must specify which variable you'd like to add"
 
         newdset = xr.open_dataset(newfile)
+        # Improvement: implement rioxarray.open_rasterio(newfile) to handle CRS
         newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y'])
         self._xrds[varname] = newvar
         
@@ -189,12 +195,11 @@ class BergXR:
             assert 'geoid_offset' not in values, "You've already applied the geoid offset!"
             values = list([values])+ ['geoid_offset']
         except KeyError:
-            self._xrds.attrs['offset_names'] = ()
             values = ['geoid_offset']
 
         self._validate(self, req_dim, req_vars)
 
-        self.get_netcdf(newfile='/Users/jessica/mapping/datasets/160281892/BedMachineGreenland-2017-09-20.nc',
+        self.get_new_var_from_file(newfile='/Users/jessica/mapping/datasets/160281892/BedMachineGreenland-2017-09-20.nc',
                               variable='geoid', varname='geoid')
         
 
@@ -219,7 +224,6 @@ class BergXR:
             assert 'geoid_offset' not in values, "You've already applied the geoid offset!"
             values = list([values])+ ['geoid_offset']
         except KeyError:
-            self._xrds.attrs['offset_names'] = ()
             values = ['geoid_offset']
 
         self._validate(self, req_dim, req_vars)
@@ -275,10 +279,9 @@ class BergXR:
         try:
             values = (self._xrds.attrs['offset_names'])
             assert 'tidal_corr' not in values, "You've already applied a tidal correction!"
-            values = list([values])+ ['tidal_corr']
+            values = list(values)+ ['tidal_corr']
         except KeyError:
-            # self._xrds.attrs['offset_names'] = ()
-            values = ('tidal_corr')
+            values = ['tidal_corr']
         
         self._validate(self, req_dim, req_vars)
         
