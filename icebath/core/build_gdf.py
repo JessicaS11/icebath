@@ -109,6 +109,7 @@ def gdf_of_bergs(onedem):
                                         y=slice(bound_box[1]-buffer, bound_box[3]+buffer))
                                         
         # extract the iceberg elevation values
+        # Note: rioxarray does not carry crs info from the dataset to individual variables
         vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
 
         # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
