@@ -61,8 +61,6 @@ def gdf_of_bergs(onedem):
     max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
     min_area = fjord_props.get_min_berg_area(fjord)
 
-    print(min_area)
-
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
     
     # create copy of elevation values so original dataset values are not impacted by image manipulations
@@ -89,57 +87,79 @@ def gdf_of_bergs(onedem):
     elevs = []
     sl_adjs = []
 
+    # 10 pixel buffer
+    buffer = 10 * res
+
     for berg in poss_bergs: # note: features.shapes returns a generator
         # make a valid shapely Polygon of the berg vertices
-        berg = Polygon(berg)
-        if berg.is_valid == False:
+        origberg = Polygon(berg)
+
+        if origberg.is_valid == False:
+            # print("invalid berg geometry")
             continue
+
+        # create a negatively buffered berg outline to exclude border/water pixels
+        berg = origberg.buffer(-buffer)
+        if berg.is_valid == False:
+            # print("invalid buffered inner-berg geometry")
+            continue
+
+        # get the largest polygon from a multipolygon (if one was created during buffering)
+        if berg.geom_type == 'MultiPolygon':
+            subbergs = list(berg)
+            area = []
+            for sb in subbergs:
+                sb = Polygon(sb)
+                area.append(sb.area)
+            idx = np.where(area == np.nanmax(area))[0]
+            berg = Polygon(subbergs[idx[0]])
+        
         # remove holes
         if berg.interiors:
             berg = Polygon(list(berg.exterior.coords))
 
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
-        bound_box = berg.bounds
-        # print(bound_box)
-    
-        # 10 pixel buffer
-        buffer = 10 * res
+        bound_box = origberg.bounds
         berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
                                         y=slice(bound_box[1]-buffer, bound_box[3]+buffer))
-                                        
+        
         # extract the iceberg elevation values
         # Note: rioxarray does not carry crs info from the dataset to individual variables
         vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
+
+        # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
+        vals = vals[~np.isnan(vals)]
 
         # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
         if np.nanmedian(vals) > max_freebd:  # units in meters, matching those of the DEM elevation
             print('"iceberg" too tall. Removing...')
             continue
 
-        # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
-        vals = vals[~np.isnan(vals)]
+        # get the pixel values for the original berg extent and a buffered version for the sea level adjustment
+        orig_vals = berg_dem.rio.clip([origberg], crs=onedem.attrs['crs']).values.flatten()       
+        orig_vals = orig_vals[~np.isnan(orig_vals)]
 
+        slberg = origberg.buffer(buffer) # get geometry bordering iceberg for sea level adjustment
         # get the regional elevation values and use to determine the sea level adjustment
-        bvals = berg_dem.values.flatten()
-        bvals=bvals[~np.isnan(bvals)]
+        slvals = berg_dem.rio.clip([slberg], crs=onedem.attrs['crs']).values.flatten()
+        slvals=slvals[~np.isnan(slvals)]
 
-        sea = [val for val in bvals if val not in vals]
+        sea = [val for val in slvals if val not in orig_vals]
         # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
         sl_adj = np.nanmedian(sea)
         # print(sl_adj)
         
-        # check that the median freeboard elevation (pre-filtering) is at least 5 m above sea level
-        if abs(np.nanmedian(vals)-sl_adj) < 5:
-            print(np.nanmedian(vals))
-            print(sl_adj)
-            print('median iceberg freeboard less than 5 m')
+        # check that the median freeboard elevation (pre-filtering) is at least 15 m above sea level
+        if abs(np.nanmedian(vals)-sl_adj) < 15:
+            # print(np.nanmedian(vals))
+            # print(sl_adj)
+            # print('median iceberg freeboard less than 15 m')
             continue
 
-        # print(np.nanmedian(vals)-sl_adj)
         # apply the sea level adjustment to the elevation values
-        vals = icalcs.apply_decrease_offset(vals, sl_adj)
-
+        vals = icalcs.apply_decrease_offset(vals, sl_adj)        
+        
         bergs.append(berg)
         elevs.append(vals)
         sl_adjs.append(sl_adj)
@@ -155,15 +175,20 @@ def gdf_of_bergs(onedem):
     temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':bergs}, geometry='berg_poly')
     
     # filter out "icebergs" that have sea level adjustments outside the median +/- two times the median absolute deviation
-    sl_adj_med = np.nanmedian(temp_berg_df.sl_adjust)
-    sl_adj_mad = stats.median_abs_deviation(temp_berg_df.sl_adjust, nan_policy='omit')
+    # sl_adj_med = np.nanmedian(temp_berg_df.sl_adjust)
+    # sl_adj_mad = stats.median_abs_deviation(temp_berg_df.sl_adjust, nan_policy='omit')
 
-    print(sl_adj_med)
-    print(sl_adj_mad)
-
-    temp_berg_df = temp_berg_df[(temp_berg_df['sl_adjust'] > sl_adj_med - 2*sl_adj_mad) & 
-                                (temp_berg_df['sl_adjust'] < sl_adj_med + 2*sl_adj_mad)]
-
+    # print(sl_adj_med)
+    # print(sl_adj_mad)
+    # temp_berg_df = temp_berg_df[(temp_berg_df['sl_adjust'] > sl_adj_med - 2*sl_adj_mad) & 
+    #                             (temp_berg_df['sl_adjust'] < sl_adj_med + 2*sl_adj_mad)]
+    # print(len(temp_berg_df))
+    # Description of above filter: For a given DEM, an individual iceberg's sea level adjustment 
+    # (***more on that later***) must fall within the median +/- 2 mean absolute deviations of 
+    # the sea level adjustments across that entire DEM. Otherwise the candidate iceberg is excluded 
+    # because it is likely subject to DEM generation errors or not correctly adjusted due to a 
+    # lack of nearby open water pixels in the DEM.
+    
     # add values that are same for all icebergs in DEM
     names = ['fjord', 'date', 'tidal_ht_offset', 'tidal_ht_min', 'tidal_ht_max']
     col_val = [fjord, onedem['dtime'].values, onedem['tidal_corr'].item(), onedem['min_tidal_ht'].item(), onedem['max_tidal_ht'].item()]

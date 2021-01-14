@@ -212,6 +212,11 @@ class BergGDF:
         dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="bed", varname="bmach_bed")
         dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="errbed", varname="bmach_errbed")
 
+        # mask out non-bathymetry data sources
+        dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="source", varname="bmach_source")
+        dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_source >=10)
+        dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_source >=10)
+
         dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_bed != -9999)
         dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_errbed != -9999)
 
