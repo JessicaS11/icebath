@@ -217,8 +217,8 @@ class BergGDF:
         dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_source >=10)
         dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_source >=10)
 
-        dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_bed != -9999)
-        dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_errbed != -9999)
+        dataset['bmach_bed'] = dataset['bmach_bed'].where((dataset.bmach_bed != -9999) & (dataset.bmach_errbed < 50))
+        dataset['bmach_errbed']= dataset['bmach_errbed'].where((dataset.bmach_errbed != -9999) & (dataset.bmach_errbed < 50))
 
         # print(dataset['bmach_bed'])
 
