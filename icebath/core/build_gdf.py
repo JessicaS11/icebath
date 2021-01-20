@@ -57,8 +57,7 @@ def gdf_of_bergs(onedem):
     if trans[4] < 0:
         flipax.append(0)
 
-    # TODO: generalize the fjord input
-    fjord='JI'
+    fjord = onedem.attrs['fjord']
     max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
     min_area = fjord_props.get_min_berg_area(fjord)
 

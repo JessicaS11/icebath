@@ -9,39 +9,56 @@ import warnings
 
 from icebath.core import fjord_props
 
-def xrds_from_dir(path=None):
+def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
     """
     Builds an XArray dataset of DEMs for finding icebergs when passed a path to a directory"
     """
     warnings.warn("This function currently assumes a constant grid and EPSG for all input files")
+    assert fjord != None, "You must specify the fjord code for these DEMs"
 
     files = [f for f in os.listdir(path) if f.endswith('dem.tif')]
+
+    # for DEMs nested in directories
+    if len(files) == 0:
+        try: 
+            os.remove(path+'.DS_Store')
+        except FileNotFoundError:
+            pass
+        dirs = [dir for dir in os.listdir(path)]
+        nestfiles=[]
+        for dir in dirs:
+            nestfiles.append([dir+'/'+f for f in os.listdir(path+dir) if f.endswith('dem.tif')])
+        files = [items for nest in nestfiles for items in nest]
 
     i=0
     darrays = list(np.zeros(len(files)))
     dtimes = list(np.zeros(len(files)))
     for f in files:
         print(f)
+
+        metaf = f.rpartition("_dem.tif")[0] +  metastr + ".txt"
+        try:
+            meta = read_meta(path+metaf)
+            print(meta)
+            dtimes[i] = get_DEM_img_times(meta)
+        except FileNotFoundError:
+            print("You must manually enter dtimes for these files within the code")
+            # dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
+            # dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
+        except AssertionError:
+            print("These stereo image times are >30 min apart... skipped")
+            continue
+
         try:
             darrays[i] = read_DEM(path+f)
             # darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
         except RasterioIOError:
             print("RasterioIOError on your input file")
-            break
-        
-        metaf = f.rpartition("_dem.tif")[0] + "_mdf.txt"
-        try:
-            # Note: the metadata is specifically for the original DEMs,
-            # not those corrected to the geoid that are read in here
-            meta = read_meta(path+metaf)
-            dtimes[i] = get_DEM_img_times(meta)
-        except FileNotFoundError:
-            print("You must manually enter dtimes for these files within the code")
-            dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
-            dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
+            break        
 
         i = i + 1
 
+    assert darrays[darrays!=0] != 0, "None of your DEMs will be put into XArray"
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
     darr = xr.concat(darrays, dim=pd.Index(dtimes, name='dtime'))#, 
                     # coords=['x','y'], join='outer')
@@ -51,7 +68,7 @@ def xrds_from_dir(path=None):
     attr = darr.attrs
     ds = darr.to_dataset()
     ds.attrs = attr
-    # ds.attrs['offset_names'] = ('geoid_offset')
+    ds.attrs['fjord'] = fjord
     attr=None
     # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
     # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
@@ -107,13 +124,20 @@ def read_DEM(fn=None):
 
 def get_DEM_img_times(meta):
     
-    img1 = meta["sourceImage1"]
-    img2 = meta["sourceImage2"]
- 
-    dtime1 = dt.datetime.strptime(img1[6:20], '%Y%m%d%H%M%S')
-    dtime2 = dt.datetime.strptime(img2[6:20], '%Y%m%d%H%M%S')
+    try:
+        img1 = meta["sourceImage1"]
+        img2 = meta["sourceImage2"]
+        dtime1 = dt.datetime.strptime(img1[6:20], '%Y%m%d%H%M%S')
+        dtime2 = dt.datetime.strptime(img2[6:20], '%Y%m%d%H%M%S')
+    except KeyError:
+        img1 = meta['Image_1_Acquisition_time']
+        img2 = meta['Image_2_Acquisition_time']
+        dtime1 = dt.datetime.strptime(img1, '%Y-%m-%dT%H:%M:%S.%fZ')
+        dtime2 = dt.datetime.strptime(img2, '%Y-%m-%dT%H:%M:%S.%fZ') 
 
-    assert (dtime1-dtime2 < dt.timedelta(minutes=30)), "These stereo image times are >30 min apart"
+    # START HERE with trying to get it to read yet another format of metadata  
+
+    assert (abs(dtime1-dtime2) < dt.timedelta(minutes=30)), "These stereo image times are >30 min apart"
     dtime = dt.datetime.fromtimestamp((dtime1.timestamp() + dtime2.timestamp())//2)
 
     return dtime
@@ -154,7 +178,10 @@ def read_meta(metafn=None):
         for line in f:
             if not line.strip(';') == "END":
                 val = line.strip().split('=')
-                metadata[val[0].strip()] = val[1].strip().strip(';')      
+                if len(val) == 1:
+                    continue
+                else:
+                    metadata[val[0].strip()] = val[1].strip().strip(';')      
             else:
                 break
 	
