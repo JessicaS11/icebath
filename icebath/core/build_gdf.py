@@ -12,6 +12,7 @@ import warnings
 from icebath.core import fjord_props
 from icebath.core import fl_ice_calcs as icalcs
 from icebath.utils import raster_ops
+from icebath.utils import vector_ops
 
 
 def xarray_to_gdf(xr):
@@ -118,6 +119,12 @@ def gdf_of_bergs(onedem):
         if berg.interiors:
             berg = Polygon(list(berg.exterior.coords))
 
+        # get the polygon complexity and skip if it's above the threshold
+        complexity = vector_ops.poly_complexity(berg)
+        if complexity >= 0.07:
+            # print('border too complex. Removing...')
+            continue
+
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
         bound_box = origberg.bounds
@@ -174,6 +181,7 @@ def gdf_of_bergs(onedem):
 
     temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':bergs}, geometry='berg_poly')
     
+    # look at DEM-wide sea level adjustments
     # filter out "icebergs" that have sea level adjustments outside the median +/- two times the median absolute deviation
     # sl_adj_med = np.nanmedian(temp_berg_df.sl_adjust)
     # sl_adj_mad = stats.median_abs_deviation(temp_berg_df.sl_adjust, nan_policy='omit')
@@ -199,26 +207,6 @@ def gdf_of_bergs(onedem):
     print("Generated geodataframe of icebergs for this image")
 
     return temp_berg_df
-   
-
-    '''
-    sea level adjustment uncertainty from matlab (likely need to implement here)
-    sl_dz1 = icefree_area1(~isnan(icefree_area1)); sl_dz1(sl_dz1>nanmedian(sl_dz1)+2*2.9 | sl_dz1<nanmedian(sl_dz1)-2*2.9) = NaN; %I think this is removing 2 sigma outliers, but I'm not sure what the significance of the 2.9 is (sigma calculated when/how?)
-    '''
-
-    '''
-
-    lines 756-763
-    %calculate some basic info about the iceberg polygon/DEM data coverage
-    %%non_nans = ~isnan(IB.zo.values.map);
-    %%nans = isnan(IB.zo.values.map);
-    IB.zo.cov.numpix = sum(sum(IB.berg_mask));
-    IB.zo.cov.numpix_nan = sum(sum(IB.berg_mask.*isnan(IB.zo.values.map)));
-    IB.zo.cov.area = IB.zo.cov.numpix * DEM1_pixel_area; %=base_area, below
-    IB.zo.cov.area_nan = IB.zo.cov.numpix_nan * DEM1_pixel_area;
-    IB.zo.cov.percent = IB.zo.cov.area_nan/IB.zo.cov.area*100;
-
-    '''
 
 
     
