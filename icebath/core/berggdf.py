@@ -107,7 +107,7 @@ class BergGDF:
             self._gdf['filtered_draft'] = np.ndarray
 
         for datarow in self._gdf.itertuples(index=True, name='Pandas'):
-            rho_sw, rho_sw_err = fjord.get_sw_dens(datarow.fjord)
+            rho_sw, _ = fjord.get_sw_dens(datarow.fjord)
             H = icalcs.H_fr_frbd(datarow.DEMarray, rho_sw, self.rho_i)
             dft = icalcs.draft_fr_H(H, datarow.DEMarray)
             # re-adjust to local 0msl reference frame

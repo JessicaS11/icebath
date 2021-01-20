@@ -61,6 +61,7 @@ def scat_lin_fit_sl1(indep, dep):
     return linx, liny, lowy, upy, rmse, slope, intercept
 
 
+# ToDo: functionize this (or at least parts of it)
 def meas_vs_infer_plot(berg_data):
 
     cols_dep = ['filtered_draft_med','filtered_draft_max']
@@ -95,9 +96,9 @@ def meas_vs_infer_plot(berg_data):
         #plot data on first figure
         j=0
         symbol = ['s','s']
-        wdsymbol = ['D','D'] #,'s','s']
+        # wdsymbol = ['D','D']
         color = [(0,.5,0),(0.2,0.9,0.2)]  #dark green, light green
-        facecolor = [(0,.6,0),(0.2,0.9,0.2)]
+        # facecolor = [(0,.6,0),(0.2,0.9,0.2)]
         lbl=['median','maximum']
         fjdlbl=['II ','NJ ']
         for n in range(0,2):
@@ -109,13 +110,13 @@ def meas_vs_infer_plot(berg_data):
     #            markerfacecolor=facecolor[n], markeredgecolor=edgecolor[n], ecolor=edgecolor[n], capsize=2)
 
             
-            linx, liny, lowy, upy, rmsefit, slpfit, interceptfit = scat_lin_fit_sl1(pandas.concat([meas[n]]), pandas.concat([infer[n]]))            
+            linx, liny, lowy, upy, rmsefit, slp, interceptfit = scat_lin_fit_sl1(pandas.concat([meas[n]]), pandas.concat([infer[n]]))            
             
             axes[i,j].plot(linx, liny, color=color[n])
             axes[i,j].fill_between(linx, lowy, upy, color=color[n], alpha=0.2)
             axes[i,j].text(0.55, 0.07-0.05*n,'$RMSE=%0.2f$, $int=%0.2f$'% (rmsefit, interceptfit), color=color[n], transform=axes[i,j].transAxes)
             # above x needs to be 0.41 with smaller figure
-        linx=None; liny=None; lowy=None; upy=None; rmsefit=None; slpfit=None; interceptfit=None
+        linx=None; liny=None; lowy=None; upy=None; rmsefit=None; slp=None; interceptfit=None
      
         n=None
     #    axes[i,j].set_title(col_labels[j], fontsize=11)
