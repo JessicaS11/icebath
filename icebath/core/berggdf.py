@@ -107,7 +107,7 @@ class BergGDF:
             self._gdf['filtered_draft'] = np.ndarray
 
         for datarow in self._gdf.itertuples(index=True, name='Pandas'):
-            rho_sw, rho_sw_err = fjord.get_sw_dens(datarow.fjord)
+            rho_sw, _ = fjord.get_sw_dens(datarow.fjord)
             H = icalcs.H_fr_frbd(datarow.DEMarray, rho_sw, self.rho_i)
             dft = icalcs.draft_fr_H(H, datarow.DEMarray)
             # re-adjust to local 0msl reference frame
@@ -212,8 +212,13 @@ class BergGDF:
         dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="bed", varname="bmach_bed")
         dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="errbed", varname="bmach_errbed")
 
-        dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_bed != -9999)
-        dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_errbed != -9999)
+        # mask out non-bathymetry data sources
+        dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="source", varname="bmach_source")
+        dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_source >=10)
+        dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_source >=10)
+
+        dataset['bmach_bed'] = dataset['bmach_bed'].where((dataset.bmach_bed != -9999) & (dataset.bmach_errbed < 50))
+        dataset['bmach_errbed']= dataset['bmach_errbed'].where((dataset.bmach_errbed != -9999) & (dataset.bmach_errbed < 50))
 
         # print(dataset['bmach_bed'])
 
