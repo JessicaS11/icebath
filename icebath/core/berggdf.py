@@ -214,18 +214,20 @@ class BergGDF:
 
         # mask out non-bathymetry data sources
         dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="source", varname="bmach_source")
-        dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_source >=10)
-        dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_source >=10)
+        dataset['bmach_meas_bed'] = dataset['bmach_bed'].where(dataset.bmach_source >=10)
+        dataset['bmach_meas_errbed']= dataset['bmach_errbed'].where(dataset.bmach_source >=10)
 
-        dataset['bmach_bed'] = dataset['bmach_bed'].where((dataset.bmach_bed != -9999) & (dataset.bmach_errbed < 50))
-        dataset['bmach_errbed']= dataset['bmach_errbed'].where((dataset.bmach_errbed != -9999) & (dataset.bmach_errbed < 50))
+        dataset['bmach_meas_bed'] = dataset['bmach_meas_bed'].where((dataset.bmach_meas_bed != -9999) & (dataset.bmach_errbed < 50))
+        dataset['bmach_meas_errbed']= dataset['bmach_meas_errbed'].where((dataset.bmach_meas_errbed != -9999) & (dataset.bmach_errbed < 50))
 
         # print(dataset['bmach_bed'])
 
         # Note: rioxarray does not carry crs info from the dataset to individual variables
         px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
-                                    args=('berg_poly', dataset['bmach_bed']), **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
+                                    args=('berg_poly', dataset['bmach_meas_bed']), **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
         self._gdf['meas_depth_med'] = px_vals.apply(np.nanmedian)
 
-        px_vals = self._gdf.apply(self.get_px_vals, axis=1, args=('berg_poly',dataset['bmach_errbed']), **{"crs": dataset.attrs['crs']})
+        px_vals = self._gdf.apply(self.get_px_vals, axis=1, args=('berg_poly',dataset['bmach_meas_errbed']), **{"crs": dataset.attrs['crs']})
         self._gdf['meas_depth_err'] = px_vals.apply(np.nanmedian)
+
+        dataset.drop(['bmach_meas_bed','bmach_meas_errbed'])

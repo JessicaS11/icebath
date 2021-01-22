@@ -39,15 +39,16 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
         metaf = f.rpartition("_dem.tif")[0] +  metastr + ".txt"
         try:
             meta = read_meta(path+metaf)
-            print(meta)
+            # print(meta)
             dtimes[i] = get_DEM_img_times(meta)
         except FileNotFoundError:
             print("You must manually enter dtimes for these files within the code")
             # dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
             # dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
-        except AssertionError:
-            print("These stereo image times are >30 min apart... skipped")
-            continue
+        # ToDo: Update this to carry through the correct assertion error? Or return more explicit errors?
+        # except AssertionError:
+        #     print("These stereo image times are >30 min apart... skipped")
+        #     continue
 
         try:
             darrays[i] = read_DEM(path+f)
@@ -58,7 +59,8 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
 
         i = i + 1
 
-    assert darrays[darrays!=0] != 0, "None of your DEMs will be put into XArray"
+    # assert np.all(darrays) != 0, "None of your DEMs will be put into Xarray"
+    assert np.all(darrays[darrays!=0]) != 0, "None of your DEMs will be put into XArray"
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
     darr = xr.concat(darrays, dim=pd.Index(dtimes, name='dtime'))#, 
                     # coords=['x','y'], join='outer')
@@ -122,20 +124,66 @@ def read_DEM(fn=None):
     return darr
 
 
+def get_dtime(string, startidx, endidx, fmtstr):
+    dtime = dt.datetime.strptime(string[startidx:endidx], fmtstr)
+    return dtime
+
 def get_DEM_img_times(meta):
     
-    try:
-        img1 = meta["sourceImage1"]
-        img2 = meta["sourceImage2"]
-        dtime1 = dt.datetime.strptime(img1[6:20], '%Y%m%d%H%M%S')
-        dtime2 = dt.datetime.strptime(img2[6:20], '%Y%m%d%H%M%S')
-    except KeyError:
-        img1 = meta['Image_1_Acquisition_time']
-        img2 = meta['Image_2_Acquisition_time']
-        dtime1 = dt.datetime.strptime(img1, '%Y-%m-%dT%H:%M:%S.%fZ')
-        dtime2 = dt.datetime.strptime(img2, '%Y-%m-%dT%H:%M:%S.%fZ') 
+    posskeys = {"sourceImage1":"sourceImage2",
+                "Image_1_Acquisition_time":"Image_2_Acquisition_time",
+                "Image 1":"Image 2"}
 
-    # START HERE with trying to get it to read yet another format of metadata  
+    dtstrings = {"sourceImage1":(6,20, '%Y%m%d%H%M%S'),
+                "Image_1_Acquisition_time":(0, -1,  '%Y-%m-%dT%H:%M:%S.%fZ'),
+                "Image 1":(6,20, '%Y%m%d%H%M%S')}  # still need to update this...
+
+    # print(posskeys.keys())
+    # print(meta.keys())
+    assert np.any(list(posskeys.keys()) in thekeys for thekeys in list(meta.keys())), "Appropriate metadata keys are not available or need to be added to the list"
+
+    print("checkpoint 1")
+    for key in list(posskeys.keys()):
+        if key in list(meta.keys()):
+            d1strs = meta[key]
+            d2strs = meta[posskeys[key]]
+            print(d1strs)
+            print("pre-break")
+            break
+        else:
+            continue
+    
+    print(d1strs)
+    if len(d1strs) == 1:
+        dtime1 = get_dtime(d1strs, *dtstrings[key])
+    else:
+        dtime1list = []
+        for d1str in d1strs:
+            dtime1list.append(get_dtime(d1str, *dtstrings[key]))
+            dtime1 = np.mean(dtime1list)
+
+    if len(d2strs) == 1:
+        dtime2 = get_dtime(d2strs, *dtstrings[key])
+    else:
+        dtime2list = []
+        for d2str in d2strs:
+            dtime2list.append(get_dtime(d2str, *dtstrings[key]))
+            dtime2 = np.mean(dtime2list)
+
+    
+    
+    # try:
+    #     img1 = meta["sourceImage1"]
+    #     img2 = meta["sourceImage2"]
+    #     dtime1 = dt.datetime.strptime(img1[6:20], '%Y%m%d%H%M%S')
+    #     dtime2 = dt.datetime.strptime(img2[6:20], '%Y%m%d%H%M%S')
+    # except KeyError:
+    #     img1 = meta['Image_1_Acquisition_time']
+    #     img2 = meta['Image_2_Acquisition_time']
+    #     dtime1 = dt.datetime.strptime(img1, '%Y-%m-%dT%H:%M:%S.%fZ')
+    #     dtime2 = dt.datetime.strptime(img2, '%Y-%m-%dT%H:%M:%S.%fZ') 
+
+    # # START HERE with trying to get it to read yet another format of metadata  
 
     assert (abs(dtime1-dtime2) < dt.timedelta(minutes=30)), "These stereo image times are >30 min apart"
     dtime = dt.datetime.fromtimestamp((dtime1.timestamp() + dtime2.timestamp())//2)
@@ -181,7 +229,7 @@ def read_meta(metafn=None):
                 if len(val) == 1:
                     continue
                 else:
-                    metadata[val[0].strip()] = val[1].strip().strip(';')      
+                    metadata.setdefault(val[0].strip(), []).append(val[1].strip().strip(';'))     
             else:
                 break
 	
