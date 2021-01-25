@@ -45,10 +45,11 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
             print("You must manually enter dtimes for these files within the code")
             # dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
             # dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
-        # ToDo: Update this to carry through the correct assertion error? Or return more explicit errors?
-        # except AssertionError:
-        #     print("These stereo image times are >30 min apart... skipped")
-        #     continue
+        # except KeyError:
+        #     raise
+        except AssertionError:
+            print("These stereo image times are >30 min apart... skipped")
+            continue
 
         try:
             darrays[i] = read_DEM(path+f)
@@ -124,7 +125,12 @@ def read_DEM(fn=None):
     return darr
 
 
-def get_dtime(string, startidx, endidx, fmtstr):
+def get_dtime(string, startidx, endidx, fmtstr):    
+    # print(string)
+    # print(string[startidx:endidx])
+    if '/' in string:
+        string = string.split("/")[-1]
+        # print(string)
     dtime = dt.datetime.strptime(string[startidx:endidx], fmtstr)
     return dtime
 
@@ -133,60 +139,44 @@ def get_DEM_img_times(meta):
     posskeys = {"sourceImage1":"sourceImage2",
                 "Image_1_Acquisition_time":"Image_2_Acquisition_time",
                 "Image 1":"Image 2"}
+    # posskeys = {"fakekey": 12}
 
     dtstrings = {"sourceImage1":(6,20, '%Y%m%d%H%M%S'),
-                "Image_1_Acquisition_time":(0, -1,  '%Y-%m-%dT%H:%M:%S.%fZ'),
-                "Image 1":(6,20, '%Y%m%d%H%M%S')}  # still need to update this...
+                "Image_1_Acquisition_time":(0, -1,  '%Y-%m-%dT%H:%M:%S.%f'),
+                "Image 1":(5,19, '%Y%m%d%H%M%S')}  # -70,-56
 
-    # print(posskeys.keys())
-    # print(meta.keys())
-    assert np.any(list(posskeys.keys()) in thekeys for thekeys in list(meta.keys())), "Appropriate metadata keys are not available or need to be added to the list"
+    if np.any([thekey in list(meta.keys()) for thekey in list(posskeys.keys())]):
+        pass
+    else:
+        raise KeyError("Appropriate metadata keys are not available or need to be added to the list")
 
-    print("checkpoint 1")
     for key in list(posskeys.keys()):
         if key in list(meta.keys()):
             d1strs = meta[key]
             d2strs = meta[posskeys[key]]
-            print(d1strs)
-            print("pre-break")
             break
         else:
             continue
+
+    dtime1list = []
+    dtime2list = []
+    for (d1str, d2str) in zip(d1strs, d2strs):
+        dtime1list.append(get_dtime(d1str, *dtstrings[key]))
+        dtime2list.append(get_dtime(d2str, *dtstrings[key]))
     
-    print(d1strs)
-    if len(d1strs) == 1:
-        dtime1 = get_dtime(d1strs, *dtstrings[key])
+    dtimelist = []
+    for i in range(0, len(dtime1list)):
+        assert (abs(dtime1list[i]-dtime2list[i]) < dt.timedelta(minutes=30)), "These stereo image times are >30 min apart"
+        dtimelist.append(dt.datetime.fromtimestamp((dtime1list[i].timestamp() + dtime2list[i].timestamp())//2))
+        
+        if i > 0:
+            assert (abs(dtimelist[i]-dtimelist[i-1]) < dt.timedelta(minutes=30)), "These DEM times are >30 min apart"
+        
+    if len(dtimelist) == 1:
+        dtime = dtimelist[0]
     else:
-        dtime1list = []
-        for d1str in d1strs:
-            dtime1list.append(get_dtime(d1str, *dtstrings[key]))
-            dtime1 = np.mean(dtime1list)
-
-    if len(d2strs) == 1:
-        dtime2 = get_dtime(d2strs, *dtstrings[key])
-    else:
-        dtime2list = []
-        for d2str in d2strs:
-            dtime2list.append(get_dtime(d2str, *dtstrings[key]))
-            dtime2 = np.mean(dtime2list)
-
-    
-    
-    # try:
-    #     img1 = meta["sourceImage1"]
-    #     img2 = meta["sourceImage2"]
-    #     dtime1 = dt.datetime.strptime(img1[6:20], '%Y%m%d%H%M%S')
-    #     dtime2 = dt.datetime.strptime(img2[6:20], '%Y%m%d%H%M%S')
-    # except KeyError:
-    #     img1 = meta['Image_1_Acquisition_time']
-    #     img2 = meta['Image_2_Acquisition_time']
-    #     dtime1 = dt.datetime.strptime(img1, '%Y-%m-%dT%H:%M:%S.%fZ')
-    #     dtime2 = dt.datetime.strptime(img2, '%Y-%m-%dT%H:%M:%S.%fZ') 
-
-    # # START HERE with trying to get it to read yet another format of metadata  
-
-    assert (abs(dtime1-dtime2) < dt.timedelta(minutes=30)), "These stereo image times are >30 min apart"
-    dtime = dt.datetime.fromtimestamp((dtime1.timestamp() + dtime2.timestamp())//2)
+        sumdtime = dt.datetime.fromtimestamp(np.sum(dtime.timestamp() for dtime in dtimelist))
+        dtime = dt.datetime.fromtimestamp(sumdtime.timestamp()//len(dtimelist))
 
     return dtime
 
@@ -220,6 +210,10 @@ def read_meta(metafn=None):
     """
 
     metadata = {}
+
+    # potential future improvement: strip quotation marks from strings, where applicable. Will then need to adjust
+    # the indices used to get the dates and times in the functions above 
+    # (get_DEM_img_times: dtstrings = {"sourceImage1":(5,19, '%Y%m%d%H%M%S')})
 
     #each key is equated with '='. This loop strips and seperates then fills the dictonary.
     with open(metafn) as f:    

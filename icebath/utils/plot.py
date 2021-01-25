@@ -157,31 +157,79 @@ def meas_vs_infer_plot(berg_data):
     # fig.savefig(fig_save_path+fig_name, format='png', dpi=800)
 
 
-def contour_plot():
+# def contour_plot():
 
 
 
-#     import matplotlib.pyplot as plt
-# import pandas
-# import numpy as np
-# from scipy.interpolate import griddata
-# import ogr,gdal
-# import os
-# from matplotlib.colors import LinearSegmentedColormap
+# #     import matplotlib.pyplot as plt
+# # import pandas
+# # import numpy as np
+# # from scipy.interpolate import griddata
+# # import ogr,gdal
+# # import os
+# # from matplotlib.colors import LinearSegmentedColormap
 
 
-# %%
-###universal variables and import of inferred water depths from csv
-#fjord = 'JI'
-#meas_px_size = 20
+# # %%
+# ###universal variables and import of inferred water depths from csv
+# #fjord = 'JI'
+# #meas_px_size = 20
 
-fjord = 'UP'
-meas_px_size = 25
+# fjord = 'UP'
+# meas_px_size = 25
 
-filepath = '/Users/jessica/GreenlandBathymetry/StrandedBergs/' + fjord + '/'
-# %% function to get shapefile points
+# filepath = '/Users/jessica/GreenlandBathymetry/StrandedBergs/' + fjord + '/'
+# # %% function to get shapefile points
 
-# def get_points_fr_shp(file_path, file_name, depth_field):
+# # def get_points_fr_shp(file_path, file_name, depth_field):
+
+# #     #open shapefile and iterate through features
+# #     driver = ogr.GetDriverByName('ESRI Shapefile')
+# #     ds = driver.Open(file_path+file_name, 0) #0 is read only; 1 is writeable
+# #     layer = ds.GetLayer()
+# # #    layerDefn = layer.GetLayerDefn()
+# #     featureCount = layer.GetFeatureCount()
+    
+# #     print "Number of features in %s: %d" % (os.path.basename(file_name),featureCount)
+    
+# #     x = np.empty(featureCount)
+# #     y = np.empty(featureCount)
+# #     d = np.empty(featureCount) 
+# #     i = 0;
+    
+# #actually get x and y coordinates for it here...
+# #     for feature in layer:
+# #         geom=feature.GetGeometryRef()
+# # #        print geom
+# #         x[i] = geom.GetPoint()[0]
+# #         y[i] = geom.GetPoint()[1]
+
+        
+# #         if depth_field=='land':
+# #             d[i] = 0
+        
+# #         elif depth_field=='depth':
+# #             dep = layer.GetLayerDefn().GetFieldDefn(2).GetName()
+# #             d[i] = feature.GetField(dep)
+        
+# #         elif depth_field=='bed_JIarea':
+# #             dep = layer.GetLayerDefn().GetFieldDefn(1).GetName()
+# #             d[i] = feature.GetField(dep)
+
+    
+# #         i = i+1    
+        
+# #     if fjord=='UP':
+# #         d = -d
+    
+# #     pts = pandas.DataFrame(np.column_stack([x,y,d]), columns=['east','north','depth'])
+    
+    
+# #     return pts
+
+
+# # %% Note: this may produce wacky results the next time it's run for UP, since I had to modify it to get inner rings that have no data for JI
+# def get_poly_pts(file_path, file_name):
 
 #     #open shapefile and iterate through features
 #     driver = ogr.GetDriverByName('ESRI Shapefile')
@@ -192,307 +240,259 @@ filepath = '/Users/jessica/GreenlandBathymetry/StrandedBergs/' + fjord + '/'
     
 #     print "Number of features in %s: %d" % (os.path.basename(file_name),featureCount)
     
-#     x = np.empty(featureCount)
-#     y = np.empty(featureCount)
-#     d = np.empty(featureCount) 
 #     i = 0;
-    
-#actually get x and y coordinates for it here...
+#     pts = pandas.DataFrame(data=None, columns=['east','north'])
+# #actually get x and y coordinates for it here...
 #     for feature in layer:
 #         geom=feature.GetGeometryRef()
+
 # #        print geom
-#         x[i] = geom.GetPoint()[0]
-#         y[i] = geom.GetPoint()[1]
+        
+#         #get all the inner rings for the feature, which are regions of nodata within the data coverage polygon (outer ring)
+#         ringCount=geom.GetGeometryCount()
+#         print "Number of rings in feature: %d" % (ringCount)
+#         for ring in geom:
+# #            print ring
+ 
+#             points = ring.GetPointCount()
+#             x = np.empty(points)
+#             y = np.empty(points)
 
-        
-#         if depth_field=='land':
-#             d[i] = 0
-        
-#         elif depth_field=='depth':
-#             dep = layer.GetLayerDefn().GetFieldDefn(2).GetName()
-#             d[i] = feature.GetField(dep)
-        
-#         elif depth_field=='bed_JIarea':
-#             dep = layer.GetLayerDefn().GetFieldDefn(1).GetName()
-#             d[i] = feature.GetField(dep)
+#             for p in xrange(points):
+#                 x[p], y[p], z = ring.GetPoint(p)
+            
+#             pts.set_value(i,'east',x)
+#             pts.set_value(i,'north',y)
 
-    
-#         i = i+1    
-        
-#     if fjord=='UP':
-#         d = -d
-    
-#     pts = pandas.DataFrame(np.column_stack([x,y,d]), columns=['east','north','depth'])
-    
+#             i = i+1    
     
 #     return pts
 
-
-# %% Note: this may produce wacky results the next time it's run for UP, since I had to modify it to get inner rings that have no data for JI
-def get_poly_pts(file_path, file_name):
-
-    #open shapefile and iterate through features
-    driver = ogr.GetDriverByName('ESRI Shapefile')
-    ds = driver.Open(file_path+file_name, 0) #0 is read only; 1 is writeable
-    layer = ds.GetLayer()
-#    layerDefn = layer.GetLayerDefn()
-    featureCount = layer.GetFeatureCount()
+# # %% get figure boundary points (extent)
     
-    print "Number of features in %s: %d" % (os.path.basename(file_name),featureCount)
-    
-    i = 0;
-    pts = pandas.DataFrame(data=None, columns=['east','north'])
-#actually get x and y coordinates for it here...
-    for feature in layer:
-        geom=feature.GetGeometryRef()
+# fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/contour_rois/'
+# fn = fjord + '_contour_roi.shp'
+# #border_pts = get_points_fr_shp(fp, fn, 'land')
 
-#        print geom
-        
-        #get all the inner rings for the feature, which are regions of nodata within the data coverage polygon (outer ring)
-        ringCount=geom.GetGeometryCount()
-        print "Number of rings in feature: %d" % (ringCount)
-        for ring in geom:
-#            print ring
- 
-            points = ring.GetPointCount()
-            x = np.empty(points)
-            y = np.empty(points)
-
-            for p in xrange(points):
-                x[p], y[p], z = ring.GetPoint(p)
-            
-            pts.set_value(i,'east',x)
-            pts.set_value(i,'north',y)
-
-            i = i+1    
-    
-    return pts
-
-# %% get figure boundary points (extent)
-    
-fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/contour_rois/'
-fn = fjord + '_contour_roi.shp'
-#border_pts = get_points_fr_shp(fp, fn, 'land')
-
-driver = ogr.GetDriverByName('ESRI Shapefile')
-ds = driver.Open(fp+fn, 0) #0 is read only; 1 is writeable
-layer = ds.GetLayer()
-extent = layer.GetExtent()
+# driver = ogr.GetDriverByName('ESRI Shapefile')
+# ds = driver.Open(fp+fn, 0) #0 is read only; 1 is writeable
+# layer = ds.GetLayer()
+# extent = layer.GetExtent()
 
 
-# # %%get land mask raster for masking grid
-# fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/land_points/'
-# fn = fjord + '_contour_land_mask.tif'
-# ds = gdal.Open(fp+fn)     
-# ds_array = ds.GetRasterBand(1).ReadAsArray() #comes in such that land is >0 and water is 0
-# mask = np.zeros_like(ds_array)
-# mask[ds_array==0] = 1
+# # # %%get land mask raster for masking grid
+# # fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/land_points/'
+# # fn = fjord + '_contour_land_mask.tif'
+# # ds = gdal.Open(fp+fn)     
+# # ds_array = ds.GetRasterBand(1).ReadAsArray() #comes in such that land is >0 and water is 0
+# # mask = np.zeros_like(ds_array)
+# # mask[ds_array==0] = 1
 
-# ds=None
-# ds_array=None
+# # ds=None
+# # ds_array=None
     
    
-# %%get land boundary-forcing points
+# # %%get land boundary-forcing points
 
-fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/land_points/'
-fn = fjord + '_contour_land_points.shp'
-land_pts = get_points_fr_shp(fp, fn, 'land')
-
-
-# %% get measured pts
-
-fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/observations/'
-fn = fjord + '_contour_roi_obs.shp'
-
-meas_pts = get_points_fr_shp(fp, fn, 'depth')
+# fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/land_points/'
+# fn = fjord + '_contour_land_points.shp'
+# land_pts = get_points_fr_shp(fp, fn, 'land')
 
 
-# %% get border of measured pts to show extent
+# # %% get measured pts
 
-fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/observations/'
-fn = fjord + '_contour_roi_obs_extent.shp'
+# fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/observations/'
+# fn = fjord + '_contour_roi_obs.shp'
 
-meas_extent = get_poly_pts(fp, fn)
-
-
-# %% DELETE: get raster of measured pts to show extent
-#fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/observations/'
-#fn = fjord + '_contour_roi_obs_extent.tif'
-#ds = gdal.Open(fp+fn)     
-#ds_array = ds.GetRasterBand(1).ReadAsArray()
-#meas_extent = np.zeros_like(ds_array)
-#meas_extent[ds_array>0] = 1
-#
-#ds=None
-#ds_array=None
-
-# %% get BedMachine border forcing points (for no data regions)
-
-fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/BedMachinev3_borders/'
-fn = fjord + '_BedMach_border_pts.shp'
-
-border_pts = get_points_fr_shp(fp, fn, 'bed_JIarea')
-border_pts['depth'] = -border_pts.depth
+# meas_pts = get_points_fr_shp(fp, fn, 'depth')
 
 
+# # %% get border of measured pts to show extent
 
-# %%get my [inferred] points
-#rerun variable declaration at top of process_all_bergs to ensure correct variables are set
+# fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/observations/'
+# fn = fjord + '_contour_roi_obs_extent.shp'
 
-#DEM method ones
-deminfidx = berg_data['meas_depth_med'].isnull()
-deminf_pts = berg_data.loc[deminfidx,['date','iceberg','east','north','draft_filt_med']]
-deminf_pts['depth'] = deminf_pts.draft_filt_med
-#print deminf_pts
+# meas_extent = get_poly_pts(fp, fn)
 
-#remove DEM points for floating icebergs (variables declared in process_all_bergs)
-d=0
-for date in dates:
-    if float_bergs[d]:
-#        print 'found some floaters ' + str(float_bergs[d])
-        for bg in float_bergs[d]:
-#            print bg
-            deminf_pts.drop(deminf_pts[(deminf_pts.date==date) & (deminf_pts.iceberg==bg)].index, inplace=True)
+
+# # %% DELETE: get raster of measured pts to show extent
+# #fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/observations/'
+# #fn = fjord + '_contour_roi_obs_extent.tif'
+# #ds = gdal.Open(fp+fn)     
+# #ds_array = ds.GetRasterBand(1).ReadAsArray()
+# #meas_extent = np.zeros_like(ds_array)
+# #meas_extent[ds_array>0] = 1
+# #
+# #ds=None
+# #ds_array=None
+
+# # %% get BedMachine border forcing points (for no data regions)
+
+# fp = '/Users/jessica/GreenlandBathymetry/RegionMaps/bathy_contour_maps/BedMachinev3_borders/'
+# fn = fjord + '_BedMach_border_pts.shp'
+
+# border_pts = get_points_fr_shp(fp, fn, 'bed_JIarea')
+# border_pts['depth'] = -border_pts.depth
+
+
+
+# # %%get my [inferred] points
+# #rerun variable declaration at top of process_all_bergs to ensure correct variables are set
+
+# #DEM method ones
+# deminfidx = berg_data['meas_depth_med'].isnull()
+# deminf_pts = berg_data.loc[deminfidx,['date','iceberg','east','north','draft_filt_med']]
+# deminf_pts['depth'] = deminf_pts.draft_filt_med
+# #print deminf_pts
+
+# #remove DEM points for floating icebergs (variables declared in process_all_bergs)
+# d=0
+# for date in dates:
+#     if float_bergs[d]:
+# #        print 'found some floaters ' + str(float_bergs[d])
+#         for bg in float_bergs[d]:
+# #            print bg
+#             deminf_pts.drop(deminf_pts[(deminf_pts.date==date) & (deminf_pts.iceberg==bg)].index, inplace=True)
             
-    d=d+1
+#     d=d+1
     
-#print deminf_pts
+# #print deminf_pts
 
-#w-d method ones
-wdinfidx = wdberg_df['meas_depth_med'].isnull()
-wdinf_pts = wdberg_df.loc[wdinfidx,['date','iceberg','east','north','wd_draft_med_js']]
-wdinf_pts['depth'] = wdinf_pts.wd_draft_med_js
-#print wdinf_pts
+# #w-d method ones
+# wdinfidx = wdberg_df['meas_depth_med'].isnull()
+# wdinf_pts = wdberg_df.loc[wdinfidx,['date','iceberg','east','north','wd_draft_med_js']]
+# wdinf_pts['depth'] = wdinf_pts.wd_draft_med_js
+# #print wdinf_pts
 
-inf_pts = deminf_pts.append(wdinf_pts)
+# inf_pts = deminf_pts.append(wdinf_pts)
 
-deminf_pts=None; wdinf_pts=None
+# deminf_pts=None; wdinf_pts=None
 
-print inf_pts
-
-
-# %%
-###create a contour plot (with lines and shading) of bathymetry, with locations of input points overlain
-###Currently, this plots inferred (left), inferred only where there are measurements (center),
-###and measured (right) values on the same colorscale
-
-#loc = ['Ilulissat Isfjord']
-#letters=['a','b']
-
-loc = ['Naajarsuit Fjord']
-letters=['c','d']
-
-plot_title = 'Comparison of Measured and Inferred Bathymetry Values'
+# print inf_pts
 
 
-plt.close()
+# # %%
+# ###create a contour plot (with lines and shading) of bathymetry, with locations of input points overlain
+# ###Currently, this plots inferred (left), inferred only where there are measurements (center),
+# ###and measured (right) values on the same colorscale
 
-fig, axes = plt.subplots(1,2, figsize=(8,5)) #8,3
+# #loc = ['Ilulissat Isfjord']
+# #letters=['a','b']
 
-#define range of colors for plotting
-v=np.linspace(0,600,13)
-bathy_cmap = LinearSegmentedColormap.from_list('bathy_cmap', [(0.85,0.9,0.98),(0,0,.5)], 12)   #plt.cm.Blues
+# loc = ['Naajarsuit Fjord']
+# letters=['c','d']
 
-#define grid
-xmin = min(extent[0:2])
-xmax = max(extent[0:2])
-xi = np.linspace(xmin, xmax, np.round(abs((xmin-xmax)/meas_px_size)))
-ymin = min(extent[2:4])
-ymax = max(extent[2:4])
-yi = np.linspace(ymax, ymin, np.round(abs((ymin-ymax)/meas_px_size)))
-xi,yi = np.meshgrid(xi,yi)
-
-#print xmin
-#print xmax
-#print ymin
-#print ymax
+# plot_title = 'Comparison of Measured and Inferred Bathymetry Values'
 
 
-#apply land mask to grid
-#note that the above grids have been set up so that the land mask array is north side up
-#(so 0,0 is actually the northwestern most point). Be wary of modifying the above or you might get some things in the wrong places.
+# plt.close()
 
-#print np.shape(xi)
-xi = xi * mask
-yi = yi * mask
+# fig, axes = plt.subplots(1,2, figsize=(8,5)) #8,3
 
-#print np.round(abs((xmin-xmax)/meas_px_size))
-#print np.round(abs((ymin-ymax)/meas_px_size))
+# #define range of colors for plotting
+# v=np.linspace(0,600,13)
+# bathy_cmap = LinearSegmentedColormap.from_list('bathy_cmap', [(0.85,0.9,0.98),(0,0,.5)], 12)   #plt.cm.Blues
 
+# #define grid
+# xmin = min(extent[0:2])
+# xmax = max(extent[0:2])
+# xi = np.linspace(xmin, xmax, np.round(abs((xmin-xmax)/meas_px_size)))
+# ymin = min(extent[2:4])
+# ymax = max(extent[2:4])
+# yi = np.linspace(ymax, ymin, np.round(abs((ymin-ymax)/meas_px_size)))
+# xi,yi = np.meshgrid(xi,yi)
 
-#first plot: measured data with land forcing, contoured
-x0 = pandas.concat([meas_pts.loc[:,'east'], land_pts.loc[:,'east'], border_pts.loc[:,'east']], axis=0, ignore_index=False)  #[meas[0],meas[1],wdmeas[0]], axis=0, ignore_index=False).astype(float)
-y0 = pandas.concat([meas_pts.loc[:,'north'], land_pts.loc[:,'north'], border_pts.loc[:,'north']], axis=0, ignore_index=False)
-z0 = pandas.concat([meas_pts.loc[:,'depth'], land_pts.loc[:,'depth'], border_pts.loc[:,'depth']], axis=0, ignore_index=False)
-zi0 = griddata((x0,y0), z0, (xi, yi), method='linear')
-#zi = griddata((meas_pts.loc[:,'east'], meas_pts.loc[:,'north']), meas_pts.loc[:,'depth'], (xi, yi), method='cubic')
-#zi0 = griddata((x0.ravel(), y0.ravel()), z0.ravel(), (xi, yi), method='nearest')
-
-
-CS = axes[0].contour(xi,yi,zi0,v,linewidths=0.3,colors=[(0.95,0.95,0.95)])
-CS = axes[0].contourf(xi,yi,zi0,v,cmap=bathy_cmap)
+# #print xmin
+# #print xmax
+# #print ymin
+# #print ymax
 
 
-#second plot:
-x2 = pandas.concat([meas_pts.loc[:,'east'], land_pts.loc[:,'east'], border_pts.loc[:,'east'], inf_pts.loc[:,'east']], axis=0, ignore_index=False)  #[meas[0],meas[1],wdmeas[0]], axis=0, ignore_index=False).astype(float)
-y2 = pandas.concat([meas_pts.loc[:,'north'], land_pts.loc[:,'north'], border_pts.loc[:,'north'], inf_pts.loc[:,'north']], axis=0, ignore_index=False)
-z2 = pandas.concat([meas_pts.loc[:,'depth'], land_pts.loc[:,'depth'], border_pts.loc[:,'depth'], inf_pts.loc[:,'depth']], axis=0, ignore_index=False)
-zi2 = griddata((x2,y2), z2, (xi, yi), method='linear')
-#zi2 = griddata((x2.ravel(), y2.ravel()), z2.ravel(), (xi, yi), method='nearest')
+# #apply land mask to grid
+# #note that the above grids have been set up so that the land mask array is north side up
+# #(so 0,0 is actually the northwestern most point). Be wary of modifying the above or you might get some things in the wrong places.
+
+# #print np.shape(xi)
+# xi = xi * mask
+# yi = yi * mask
+
+# #print np.round(abs((xmin-xmax)/meas_px_size))
+# #print np.round(abs((ymin-ymax)/meas_px_size))
 
 
-CS2 = axes[1].contour(xi,yi,zi2,v,linewidths=0.3,colors=[(0.95,0.95,0.95)])
-CS2 = axes[1].contourf(xi,yi,zi2,v,cmap=bathy_cmap)
-
-axes[1].scatter(inf_pts.loc[:,'east'],inf_pts.loc[:,'north'],marker='o',c='k',s=5)
-
-
-# draw colorbar
-#x=plt.colorbar(ticks=v) #this is what was in the example I found, but it doesn't work (can't find mappable - I'm guessing it might be because of my multiple axes?)
-cbar = plt.colorbar(CS, cax=plt.axes([0.89, 0.1, 0.02, 0.75]), label='m below mean sea level') #these parameters are: left, bottom, width, height
-cbar.ax.invert_yaxis() 
+# #first plot: measured data with land forcing, contoured
+# x0 = pandas.concat([meas_pts.loc[:,'east'], land_pts.loc[:,'east'], border_pts.loc[:,'east']], axis=0, ignore_index=False)  #[meas[0],meas[1],wdmeas[0]], axis=0, ignore_index=False).astype(float)
+# y0 = pandas.concat([meas_pts.loc[:,'north'], land_pts.loc[:,'north'], border_pts.loc[:,'north']], axis=0, ignore_index=False)
+# z0 = pandas.concat([meas_pts.loc[:,'depth'], land_pts.loc[:,'depth'], border_pts.loc[:,'depth']], axis=0, ignore_index=False)
+# zi0 = griddata((x0,y0), z0, (xi, yi), method='linear')
+# #zi = griddata((meas_pts.loc[:,'east'], meas_pts.loc[:,'north']), meas_pts.loc[:,'depth'], (xi, yi), method='cubic')
+# #zi0 = griddata((x0.ravel(), y0.ravel()), z0.ravel(), (xi, yi), method='nearest')
 
 
-landcmap = LinearSegmentedColormap.from_list('land_cmap', [(0.65,0.45,0.35),(1,1,1)], 2)
-#extentcmap = LinearSegmentedColormap.from_list('observations_cmap', [(0,0,0,0),(0,0,0,0.3)], 2)
+# CS = axes[0].contour(xi,yi,zi0,v,linewidths=0.3,colors=[(0.95,0.95,0.95)])
+# CS = axes[0].contourf(xi,yi,zi0,v,cmap=bathy_cmap)
 
 
-if loc==['Ilulissat Isfjord']:
-    xmax = xmax-1000
-
-for n in range(0,2):
-    axes[n].imshow(mask, extent=(xmin, xmax, ymin, ymax), cmap=landcmap)
-#    axes[n].imshow(meas_extent, extent=(xmin, xmax, ymin, ymax), cmap=extentcmap, zorder=30)
-#    axes[n].scatter(meas_extent.loc[:,'east'], meas_extent.loc[:,'north'], marker='s', c='k', s=0.6)
-    for datarow in meas_extent.itertuples(index=True, name='Pandas'):
-        axes[n].plot(meas_extent.loc[datarow.Index,'east'], meas_extent.loc[datarow.Index,'north'], marker='None', linestyle='-', c='k', linewidth=1)
-    axes[n].axis('equal')
-    axes[n].set_ylim(ymin,ymax)
-    axes[n].set_xlim(xmin,xmax)
+# #second plot:
+# x2 = pandas.concat([meas_pts.loc[:,'east'], land_pts.loc[:,'east'], border_pts.loc[:,'east'], inf_pts.loc[:,'east']], axis=0, ignore_index=False)  #[meas[0],meas[1],wdmeas[0]], axis=0, ignore_index=False).astype(float)
+# y2 = pandas.concat([meas_pts.loc[:,'north'], land_pts.loc[:,'north'], border_pts.loc[:,'north'], inf_pts.loc[:,'north']], axis=0, ignore_index=False)
+# z2 = pandas.concat([meas_pts.loc[:,'depth'], land_pts.loc[:,'depth'], border_pts.loc[:,'depth'], inf_pts.loc[:,'depth']], axis=0, ignore_index=False)
+# zi2 = griddata((x2,y2), z2, (xi, yi), method='linear')
+# #zi2 = griddata((x2.ravel(), y2.ravel()), z2.ravel(), (xi, yi), method='nearest')
 
 
+# CS2 = axes[1].contour(xi,yi,zi2,v,linewidths=0.3,colors=[(0.95,0.95,0.95)])
+# CS2 = axes[1].contourf(xi,yi,zi2,v,cmap=bathy_cmap)
 
-#turn off y axis labels
-axes[1].yaxis.set_ticklabels([])
-#axes[2].yaxis.set_ticklabels([])
-
-#label each plot
-axes[0].set_title('measured gridpoints', fontsize=11)
-axes[0].text(0.02, 0.95, letters[0], weight='bold', transform=axes[0].transAxes, zorder=10)
-#axes[1].set_title('Bedmachine', fontsize=11)
-axes[1].set_title('measured+inferred', fontsize=11)
-axes[1].text(0.02, 0.95, letters[1], weight='bold', transform=axes[1].transAxes, zorder=10)
-
-fig.text(0.5, 0.03,'Easting (m)', ha='center', va='center', fontsize=12)
-fig.text(0.03, 0.5,'Northing (m)', ha='center', va='center', rotation='vertical', fontsize=12)
-
-plt.suptitle(loc[0]+ ' Bathymetry Contours', fontsize=14)
-fig.subplots_adjust(hspace=0.3, wspace = 0.14, top=0.87, left=0.14, right=0.87, bottom=0.1)
+# axes[1].scatter(inf_pts.loc[:,'east'],inf_pts.loc[:,'north'],marker='o',c='k',s=5)
 
 
-plt.show()
+# # draw colorbar
+# #x=plt.colorbar(ticks=v) #this is what was in the example I found, but it doesn't work (can't find mappable - I'm guessing it might be because of my multiple axes?)
+# cbar = plt.colorbar(CS, cax=plt.axes([0.89, 0.1, 0.02, 0.75]), label='m below mean sea level') #these parameters are: left, bottom, width, height
+# cbar.ax.invert_yaxis() 
 
-# # %%###export figure to png
-# fig_name = fjord+'_gridded_bathy_contours_border,linear.png'
-# fig_save_path = '/Users/jessica/Figures/GreenlandFjordBathymetry/results/'
-# fig.savefig(fig_save_path+fig_name, format='png', dpi=1200)
+
+# landcmap = LinearSegmentedColormap.from_list('land_cmap', [(0.65,0.45,0.35),(1,1,1)], 2)
+# #extentcmap = LinearSegmentedColormap.from_list('observations_cmap', [(0,0,0,0),(0,0,0,0.3)], 2)
+
+
+# if loc==['Ilulissat Isfjord']:
+#     xmax = xmax-1000
+
+# for n in range(0,2):
+#     axes[n].imshow(mask, extent=(xmin, xmax, ymin, ymax), cmap=landcmap)
+# #    axes[n].imshow(meas_extent, extent=(xmin, xmax, ymin, ymax), cmap=extentcmap, zorder=30)
+# #    axes[n].scatter(meas_extent.loc[:,'east'], meas_extent.loc[:,'north'], marker='s', c='k', s=0.6)
+#     for datarow in meas_extent.itertuples(index=True, name='Pandas'):
+#         axes[n].plot(meas_extent.loc[datarow.Index,'east'], meas_extent.loc[datarow.Index,'north'], marker='None', linestyle='-', c='k', linewidth=1)
+#     axes[n].axis('equal')
+#     axes[n].set_ylim(ymin,ymax)
+#     axes[n].set_xlim(xmin,xmax)
+
+
+
+# #turn off y axis labels
+# axes[1].yaxis.set_ticklabels([])
+# #axes[2].yaxis.set_ticklabels([])
+
+# #label each plot
+# axes[0].set_title('measured gridpoints', fontsize=11)
+# axes[0].text(0.02, 0.95, letters[0], weight='bold', transform=axes[0].transAxes, zorder=10)
+# #axes[1].set_title('Bedmachine', fontsize=11)
+# axes[1].set_title('measured+inferred', fontsize=11)
+# axes[1].text(0.02, 0.95, letters[1], weight='bold', transform=axes[1].transAxes, zorder=10)
+
+# fig.text(0.5, 0.03,'Easting (m)', ha='center', va='center', fontsize=12)
+# fig.text(0.03, 0.5,'Northing (m)', ha='center', va='center', rotation='vertical', fontsize=12)
+
+# plt.suptitle(loc[0]+ ' Bathymetry Contours', fontsize=14)
+# fig.subplots_adjust(hspace=0.3, wspace = 0.14, top=0.87, left=0.14, right=0.87, bottom=0.1)
+
+
+# plt.show()
+
+# # # %%###export figure to png
+# # fig_name = fjord+'_gridded_bathy_contours_border,linear.png'
+# # fig_save_path = '/Users/jessica/Figures/GreenlandFjordBathymetry/results/'
+# # fig.savefig(fig_save_path+fig_name, format='png', dpi=1200)
