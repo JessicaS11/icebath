@@ -67,6 +67,7 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
         assert np.all(darrays[0]) != 0, "Your DEM will not be put into XArray"
     else:
         assert np.all(darrays[darrays!=0]) != 0, "None of your DEMs will be put into XArray"
+    
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
     darr = xr.concat(darrays, 
                     dim=pd.Index(dtimes, name='dtime'), 
