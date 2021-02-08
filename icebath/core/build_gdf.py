@@ -178,8 +178,13 @@ def gdf_of_bergs(onedem):
         sl_adjs.append(sl_adj)
 
     # delete generator object so no issues between DEMs
+    # delete arrays in memory (should be done automatically by garbage collector)
     try:
         del poss_bergs
+        del elev_copy
+        del seglabeled_arr
+        del labeled_arr
+        
     except NameError:
         pass
     

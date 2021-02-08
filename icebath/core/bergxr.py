@@ -178,15 +178,16 @@ class BergXR:
         assert variable != None, "You must specify which variable you'd like to add"
 
         
-        newdset = xr.open_dataset(newfile)
+        newdset = xr.open_dataset(newfile, chunks={'x': 500, 'y': 500})
         # Improvement: implement rioxarray.open_rasterio(newfile) to handle CRS
         # apply the existing chunking to the new dataset
         newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
         del newdset
         
-        print(newvar)
+#         print(newvar)
         self._xrds[varname] = newvar
-        print(self._xrds)
+        del newvar
+#         print(self._xrds)
         
 
     def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime','geoid']},

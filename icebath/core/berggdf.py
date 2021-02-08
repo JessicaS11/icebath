@@ -199,7 +199,6 @@ class BergGDF:
             vals = np.nan
         return vals
       
-    # ToDo: generalize the variable/variable names to the function level (so not so BedMachine specific)
     def get_meas_wat_depth(self, dataset, src_fl, vardict={}, nanval=None):
         """
         Get water depths where measurements are available
@@ -220,19 +219,26 @@ class BergGDF:
         # ToDo: add check to see if the layers are already there...
         # Note: assumes compatible CRS systems
         for key in vardict.keys():
+            print(key)
             dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], 
                                                  newfile=src_fl, 
                                                  variable=key, 
                                                  varname=vardict[key])
+            print("added layer")
             if nanval != None:
+                print("nanval has a val")
                 dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)
+                print("the nanval was applied")
                 
             # Note: rioxarray does not carry crs info from the dataset to individual variables
             px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
                                     args=('berg_poly', 
                                           dataset[vardict[key]]), 
                                           **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
+            print("we have the pixel values")
             self._gdf[vardict[key]] = px_vals.apply(np.nanmedian)
+            print("we got to the end of the function")
+            print(dataset)
         
 
         
