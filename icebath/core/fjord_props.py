@@ -55,6 +55,7 @@ def get_ice_thickness(fjord):
 def get_fjord_bounds(fjord):
     """
     Get geospatial bounds of the fjord to subset measurement files (e.g. BedMachine, IBCAO)
+    Coordinates are in NSIDC Polar Geospatial Coordinates (EPSG:3413)
     """
     
     minx = {"JI": -440795.0}

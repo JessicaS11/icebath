@@ -65,17 +65,18 @@ def gdf_of_bergs(onedem):
     
     # create copy of elevation values so original dataset values are not impacted by image manipulations
     # and positive/negative coordinate systems can be ignored (note flipax=[] below)
-    elev_copy = np.copy(onedem.elevation.values)
-#     elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
-#     flipax=[]
+    # something wonky is happening and when I ran this code on Pangeo I needed to NOT flip the elevation values here and then switch the bounding box y value order
+    # Not entirely sure what's going on, but need to be aware of this!!
+    print("NOTE: check for proper orientation of results depending on compute environment. Pangeo results were upside down.")
+    # elev_copy = np.copy(onedem.elevation.values)
+    elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
+    # flipax=[]
     
     # generate a labeled array of potential iceberg features, excluding those that are too large or small
     seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=[])
     print("Got labeled raster of potential icebergs for an image")
-    print(flipax)
     # remove features whose borders are >50% no data values (i.e. the "iceberg" edge is really a DEM edge)
     #########!!!!!!!!!!!!!!
-    # changed the flipax in the next line to get it to work on pangeo?!?
     labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[]).astype(seglabeled_arr.dtype)
     # apparently rasterio can't handle int64 inputs, which is what border_filtering returns   
     
@@ -131,8 +132,8 @@ def gdf_of_bergs(onedem):
         # bounds: (minx, miny, maxx, maxy)
         bound_box = origberg.bounds
         berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
-                                        y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo
-#                                         y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
+                                        # y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo? May have been because of issues with applying transform to right-side-up image above?
+                                        y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
         
         
 #         print(bound_box)
