@@ -61,94 +61,181 @@ def scat_lin_fit_sl1(indep, dep):
     return linx, liny, lowy, upy, rmse, slope, intercept
 
 
+def makeplot(plotinfo, ax):
+    
+    if plotinfo['plottype'] == 'scatter':
+        ax.errorbar(plotinfo['x'], plotinfo['y'], **plotinfo['kwargs'])
+        return ax
+        
+    elif plotinfo['plottype'] == 'line':
+        linx, liny, lowy, upy, rmsefit, slp, interceptfit = scat_lin_fit_sl1(plotinfo['x'], plotinfo['y'])            
+            
+        ax.plot(linx, liny, color=plotinfo['color'])
+        ax.fill_between(linx, lowy, upy, color=plotinfo['color'], alpha=0.2)
+        ax.text(0.55, 0.07-0.05*n,'$RMSE=%0.2f$, $int=%0.2f$'% (rmsefit, interceptfit),
+                color=plotinfo['color'], transform=ax.transAxes)
+        return ax
+
+        
+
 # ToDo: functionize this (or at least parts of it)
-def meas_vs_infer_plot(berg_data):
+def meas_vs_infer_fig(berg_data):
 
-    cols_dep = ['filtered_draft_med','filtered_draft_max']
-    cols_indep = ['meas_depth_med','meas_depth_med']
-    col_labels = ['Median and Maximum']
 
-    plot_title = 'Comparison of Measured and Freeboard-\ninferred Bathymetry Values'
+#  MOVE THIS FILTERING TO PLOTTING PORTION
+# mask out non-bathymetry data sources
+#         dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="source", varname="bmach_source")
+#         dataset['bmach_meas_bed'] = dataset['bmach_bed'].where(dataset.bmach_source >=10)
+#         dataset['bmach_meas_errbed']= dataset['bmach_errbed'].where(dataset.bmach_source >=10)            
+        
+#         dataset['bmach_meas_bed'] = dataset['bmach_meas_bed'].where((dataset.bmach_meas_bed != -9999) & (dataset.bmach_errbed < 50))
+#         dataset['bmach_meas_errbed']= dataset['bmach_meas_errbed'].where((dataset.bmach_meas_errbed != -9999) & (dataset.bmach_errbed < 50))
+    
+    
+    
+
+    
+    
+    bmach_med_inf = {'x': berg_data['meas_depth_med'],
+                     'y': berg_data['filtered_draft_med'],
+                     'plottype': 'scatter',
+                     kwargs: {xerr:
+                              yerr:
+                              fmt: 's',
+                              color:(0,.5,0) #dark green,
+                              label: 'Median (BMach)'}
+                    }
+    
+    bmach_max_inf = {'x': berg_data['meas_depth_med'],
+                     'y': berg_data['filtered_draft_max'],
+                     'plottype': 'scatter',
+                     kwargs: {xerr:
+                              yerr:
+                              fmt: 's',
+                              color:(0.2,0.9,0.2) #light green,
+                              label: 'Maximum (BMach)'}
+                    }
+
+#     ibcao_med_inf = {'x': berg_data['meas_depth_med'],
+#                      'y': berg_data['filtered_draft_med'],
+#                      'plottype': 'scatter',
+#                      kwargs: {xerr:
+#                               yerr:
+#                               fmt: 's',
+#                               color:(0,.5,0) #dark green,
+#                               label: 'Median (BMach)'}
+#                     }
+    
+#     ibcao_max_inf = {'x': berg_data['meas_depth_med'],
+#                      'y': berg_data['filtered_draft_max'],
+#                      'plottype': 'scatter',
+#                      kwargs: {xerr:
+#                               yerr:
+#                               fmt: 's',
+#                               color:(0.2,0.9,0.2) #light green,
+#                               label: 'Maximum (BMach)'}
+#                     }
+
+        
+
+    
+    
+    
+#     cols_dep = ['filtered_draft_med','filtered_draft_max']
+#     cols_indep = ['meas_depth_med','meas_depth_med']
+    cols = {'Direct Measurements': [bmach_med_inf, bmach_max_inf]} #, ibcao_med_inf, ibcao_max_inf],
+#             'Indirect Measurements':[bmach_indir_med_inf, bmach_indir_max_inf] #, ibcao_indir_med_inf, ibcao_indir_max_inf]
+#            }
+
+    plot_title = 'Comparison of Grid Product and Iceberg Freeboard-\ninferred Bathymetry Values'
     # fig_name = 'measuredmed_vs_inferred.png'
 
-    berg_data = berg_data.dropna(axis='index', subset=cols_dep+cols_indep)
+#     berg_data = berg_data.dropna(axis='index', subset=cols_dep+cols_indep)
 
     sz=6.5 #4.5
     nrows=1
-    ncols=len(col_labels)
+    ncols=len(cols)
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols*sz,nrows*sz), squeeze=False) #fig size is width, ht in inches; orig 10,5
 
-    meas=[]; meas_err=[]; infer=[]; infer_err=[]
+#     meas=[]; meas_err=[]; infer=[]; infer_err=[]
 
     for i in range(0,nrows):
+        
+        for j in range(0, ncols):
+            # plot the data
+            
+            for indplot in cols.keys()[j]:
+                axes[i,j] = makeplot(indplot, axes[i,j])
+        
+        
             
         #get DEM method data
-        for k in range(0,len(cols_indep)):
-            print(cols_indep[k] +' vs ' + cols_dep[k])
+#         for k in range(0,len(cols_indep)):
+#             print(cols_indep[k] +' vs ' + cols_dep[k])
             
-            meas.append(-berg_data[cols_indep[k]])
-            meas_err.append(berg_data.meas_depth_err)
-            infer.append(berg_data[cols_dep[k]])
-            infer_err.append(berg_data.filtered_draft_err)
+#             meas.append(-berg_data[cols_indep[k]])
+#             meas_err.append(berg_data.meas_depth_err)
+#             infer.append(berg_data[cols_dep[k]])
+#             infer_err.append(berg_data.filtered_draft_err)
 
-            k=None
+#             k=None
 
-        #plot data on first figure
-        j=0
-        symbol = ['s','s']
-        # wdsymbol = ['D','D']
-        color = [(0,.5,0),(0.2,0.9,0.2)]  #dark green, light green
-        # facecolor = [(0,.6,0),(0.2,0.9,0.2)]
-        lbl=['median','maximum']
-        fjdlbl=['II ','NJ ']
-        for n in range(0,2):
-            #plot data (JI DEM)
+#         #plot data on first figure
+#         j=0
+# #         symbol = ['s','s']
+# #         # wdsymbol = ['D','D']
+# #         color = [(0,.5,0),(0.2,0.9,0.2)]  #dark green, light green
+# #         # facecolor = [(0,.6,0),(0.2,0.9,0.2)]
+# #         lbl=['median','maximum']
+# #         fjdlbl=['II ','NJ ']
+#         for n in range(0,2):
+#             #plot data (JI DEM)
             
-            axes[i,j].errorbar(meas[n],infer[n], xerr=meas_err[n], yerr=infer_err[n], fmt=symbol[n], \
-                color=color[n], capsize=2, label=fjdlbl[0] + lbl[n])
-    #            color=color[n], capsize=2, label=lbl[n]+'\n(%0.2f)'% rmse[n])
-    #            markerfacecolor=facecolor[n], markeredgecolor=edgecolor[n], ecolor=edgecolor[n], capsize=2)
+#             axes[i,j].errorbar(meas[n],infer[n], xerr=meas_err[n], yerr=infer_err[n], fmt=symbol[n], \
+#                 color=color[n], capsize=2, label=fjdlbl[0] + lbl[n])
+#     #            color=color[n], capsize=2, label=lbl[n]+'\n(%0.2f)'% rmse[n])
+#     #            markerfacecolor=facecolor[n], markeredgecolor=edgecolor[n], ecolor=edgecolor[n], capsize=2)
 
             
-            linx, liny, lowy, upy, rmsefit, slp, interceptfit = scat_lin_fit_sl1(pandas.concat([meas[n]]), pandas.concat([infer[n]]))            
+#             linx, liny, lowy, upy, rmsefit, slp, interceptfit = scat_lin_fit_sl1(pandas.concat([meas[n]]), pandas.concat([infer[n]]))            
             
-            axes[i,j].plot(linx, liny, color=color[n])
-            axes[i,j].fill_between(linx, lowy, upy, color=color[n], alpha=0.2)
-            axes[i,j].text(0.55, 0.07-0.05*n,'$RMSE=%0.2f$, $int=%0.2f$'% (rmsefit, interceptfit), color=color[n], transform=axes[i,j].transAxes)
-            # above x needs to be 0.41 with smaller figure
-        linx=None; liny=None; lowy=None; upy=None; rmsefit=None; slp=None; interceptfit=None
+#             axes[i,j].plot(linx, liny, color=color[n])
+#             axes[i,j].fill_between(linx, lowy, upy, color=color[n], alpha=0.2)
+#             axes[i,j].text(0.55, 0.07-0.05*n,'$RMSE=%0.2f$, $int=%0.2f$'% (rmsefit, interceptfit), color=color[n], transform=axes[i,j].transAxes)
+#             # above x needs to be 0.41 with smaller figure
+#         linx=None; liny=None; lowy=None; upy=None; rmsefit=None; slp=None; interceptfit=None
      
-        n=None
-    #    axes[i,j].set_title(col_labels[j], fontsize=11)
-    #    axes[i,j].text(0.02, 0.95,'c', weight='bold', transform=axes[i,j].transAxes)
+#         n=None
+#     #    axes[i,j].set_title(col_labels[j], fontsize=11)
+#     #    axes[i,j].text(0.02, 0.95,'c', weight='bold', transform=axes[i,j].transAxes)
          
-        plotmin = 50
-        plotmax = 575
-        axes[i,j].plot([plotmin,plotmax],[plotmin, plotmax], color='k', linestyle=':')
+#         plotmin = 50
+#         plotmax = 575
+#         axes[i,j].plot([plotmin,plotmax],[plotmin, plotmax], color='k', linestyle=':')
 
-        #modify the legend handle to not plot error bars
-        handles, labels = axes[i,j].get_legend_handles_labels()  # get handles
-        handles = [h[0] for h in handles]   # remove the errorbars
-        axes[i,j].legend(handles, labels, loc=2) #bbox_to_anchor=(1, 1), 
+#         #modify the legend handle to not plot error bars
+#         handles, labels = axes[i,j].get_legend_handles_labels()  # get handles
+#         handles = [h[0] for h in handles]   # remove the errorbars
+#         axes[i,j].legend(handles, labels, loc=2) #bbox_to_anchor=(1, 1), 
 
-        axes[i,j].set_ylim(plotmin,plotmax)
-        axes[i,j].set_xlim(plotmin,plotmax)
-        axes[i,j].set_aspect('equal')
+#         axes[i,j].set_ylim(plotmin,plotmax)
+#         axes[i,j].set_xlim(plotmin,plotmax)
+#         axes[i,j].set_aspect('equal')
     
-        meas=None
-        infer=None
-        meas_err=None
-        infer_err=None
+#         meas=None
+#         infer=None
+#         meas_err=None
+#         infer_err=None
 
-    fig.text(0.52, 0.04,'Measured Water Depth (m)', ha='center', va='center', fontsize=12)
-    fig.text(0.03, 0.5,'Inferred Water Depth (m)', ha='center', va='center', rotation='vertical', fontsize=12)
+#     fig.text(0.52, 0.04,'Measured Water Depth (m)', ha='center', va='center', fontsize=12)
+#     fig.text(0.03, 0.5,'Inferred Water Depth (m)', ha='center', va='center', rotation='vertical', fontsize=12)
             
-    fig.suptitle(plot_title, fontsize=14)
+#     fig.suptitle(plot_title, fontsize=14)
 
-    if nrows<2:
-        fig.subplots_adjust(top=0.87, bottom=0.13, wspace=0.6, left=0.08, right=0.99) #for rec plot: (top=0.85, bottom=0.15, wspace=0.6, left=0.15, right=0.95)
-    else:        
-        fig.subplots_adjust(hspace=0.3, wspace = 0.2, top=0.87) #orig (before legend between plots) wspace = 0.2
+#     if nrows<2:
+#         fig.subplots_adjust(top=0.87, bottom=0.13, wspace=0.6, left=0.08, right=0.99) #for rec plot: (top=0.85, bottom=0.15, wspace=0.6, left=0.15, right=0.95)
+#     else:        
+#         fig.subplots_adjust(hspace=0.3, wspace = 0.2, top=0.87) #orig (before legend between plots) wspace = 0.2
 
     plt.show()
 
@@ -156,6 +243,43 @@ def meas_vs_infer_plot(berg_data):
     # fig_save_path = '/Users/jessica/Figures/GreenlandFjordBathymetry/results/'
     # fig.savefig(fig_save_path+fig_name, format='png', dpi=800)
 
+
+    
+    
+    #     meas_src = {'bmach': {'color': 'green',
+#                          'shape': 's'
+#                          }
+#                 'ibcao': {'color': 'blue',
+#                          'shape': 'D'
+#                          }
+#                }
+    
+#     medmaxhue = {'green': {'med': (0,.5,0), #dark green
+#                            'max': (0.2,0.9,0.2), #light green
+#                           }
+#                  'blue': {'med': (0,.5,0), #dark green
+#                           'max': (0.2,0.9,0.2), #light green
+#                           }
+#                 }
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
 # def contour_plot():
 

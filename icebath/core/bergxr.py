@@ -183,7 +183,8 @@ class BergXR:
         self._xrds[varname] = newvar
         
 
-    def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime','geoid']}):
+    def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime','geoid']},
+                 source='/Users/jessica/mapping/datasets/160281892/BedMachineGreenland-2017-09-20.nc'):
         """
         Get geoid layer from BedMachine (you must have the NetCDF stored locally; filename is hardcoded in)
         and apply to all elevation values.
@@ -199,7 +200,7 @@ class BergXR:
 
         self._validate(self, req_dim, req_vars)
 
-        self.get_new_var_from_file(newfile='/Users/jessica/mapping/datasets/160281892/BedMachineGreenland-2017-09-20.nc',
+        self.get_new_var_from_file(newfile=source,
                               variable='geoid', varname='geoid')
         
 
@@ -273,7 +274,7 @@ class BergXR:
         tides and see output plots, see fl_ice_calcs.predict_tides.
         """
 
-        print("Note that tide model, model location (on Pangeo), and epsg are hard coded in!")
+        print("Note that tide model and epsg are hard coded in!")
         print("They can also be provided as keywords if the wrapper function is updated to handle them")
 
         try:
@@ -284,9 +285,6 @@ class BergXR:
             values = ['tidal_corr']
         
         self._validate(self, req_dim, req_vars)
-        
-        # kwargs: model_path='/home/jovyan/pyTMD/models',
-        #                 **model='AOTIM-5-2018', **epsg=3413
         
         self._xrds = self._xrds.groupby('dtime', squeeze=False).apply(self._tidal_corr_wrapper, args=(loc), **kwargs)
 
@@ -306,10 +304,10 @@ class BergXR:
             Must contain the fields ...
         """  
 
-        if kwargs['model_path']:
-            model_path = kwargs['model_path']
-        else: 
-            model_path='/home/jovyan/pyTMD/models'
+        try: model_path = kwargs['model_path']
+        except KeyError:
+            raise AssertionError("You must specify a model path")
+        
 
         time, tidal_ht, plots = icalcs.predict_tides(loc, 
                                                     img_time=gb.dtime.values, 
