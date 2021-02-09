@@ -9,6 +9,9 @@ import warnings
 
 from icebath.core import fjord_props
 
+import faulthandler
+faulthandler.enable()
+
 def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
     """
     Builds an XArray dataset of DEMs for finding icebergs when passed a path to a directory"
@@ -63,10 +66,14 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
     # assert np.all(darrays) != 0, "None of your DEMs will be put into Xarray"
     assert np.all(darrays[darrays!=0]) != 0, "None of your DEMs will be put into XArray"
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
-    darr = xr.concat(darrays, dim=pd.Index(dtimes, name='dtime'))#, 
-                    # coords=['x','y'], join='outer')
+    darr = xr.concat(darrays, 
+                    dim=pd.Index(dtimes, name='dtime'), 
+                    # coords=['x','y'], 
+                    join='outer').chunk({'dtime': 1, 'x':5000, 'y':5000}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
                     # combine_attrs='no_conflicts' # only in newest version of xarray
 
+    del darrays
+    
     # convert to dataset with elevation as a variable and add attributes
     attr = darr.attrs
     ds = darr.to_dataset()
