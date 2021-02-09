@@ -208,7 +208,7 @@ class BergGDF:
         dataset : XArray dataset
                 dataset containing the spatial area of interest with x and y dimensions
         src_fl : source file, string
-                The full path of the measurement data source string
+                The full path of the measurement data source file
         vardict : variable mapping, dictionary
                 Key-value pairs mapping the source dataset keys to their new variable names in the dataset
         """

@@ -176,22 +176,27 @@ class BergXR:
         # add check for existing file?
         assert newfile != None, "You must provide an input file of the dataset to add."
         assert variable != None, "You must specify which variable you'd like to add"
-
         
-        newdset = xr.open_dataset(newfile, chunks={'x': 500, 'y': 500})
+        # in an ideal world, we'd read this in chunked with dask. however, this means (in the case of Pangeo) that the file
+        # needs to be in cloud storage, since the cluster can't access your home directory
+        # https://pangeo.io/cloud.html#cloud-object-storage
+        with xr.open_dataset(newfile) as newdset: #, chunks={'x': 500, 'y': 500}) as newdset:
+        
+#         newdset = xr.open_dataset(newfile, chunks={'x': 500, 'y': 500})
         # Improvement: implement rioxarray.open_rasterio(newfile) to handle CRS
         # apply the existing chunking to the new dataset
-        newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
-        del newdset
+            newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
+#         newdset.close()
+#         del newdset
         
 #         print(newvar)
-        self._xrds[varname] = newvar
-        del newvar
+            self._xrds[varname] = newvar
+#         del newvar
 #         print(self._xrds)
         
 
     def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime','geoid']},
-                 source='/Users/jessica/mapping/datasets/160281892/BedMachineGreenland-2017-09-20.nc'):
+                 source=None):
         """
         Get geoid layer from BedMachine (you must have the NetCDF stored locally; filename is hardcoded in)
         and apply to all elevation values.

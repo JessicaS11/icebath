@@ -65,17 +65,18 @@ def gdf_of_bergs(onedem):
     
     # create copy of elevation values so original dataset values are not impacted by image manipulations
     # and positive/negative coordinate systems can be ignored (note flipax=[] below)
-    elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
-    flipax=[]
+    elev_copy = np.copy(onedem.elevation.values)
+#     elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
+#     flipax=[]
     
     # generate a labeled array of potential iceberg features, excluding those that are too large or small
-    seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=flipax)
+    seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=[])
     print("Got labeled raster of potential icebergs for an image")
-   
+    print(flipax)
     # remove features whose borders are >50% no data values (i.e. the "iceberg" edge is really a DEM edge)
     #########!!!!!!!!!!!!!!
     # changed the flipax in the next line to get it to work on pangeo?!?
-    labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[0]).astype(seglabeled_arr.dtype)
+    labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[]).astype(seglabeled_arr.dtype)
     # apparently rasterio can't handle int64 inputs, which is what border_filtering returns   
     
     # create iceberg polygons and put in a geodataframe, excluding icebergs that don't meet the requirements
