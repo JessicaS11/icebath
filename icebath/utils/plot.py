@@ -58,195 +58,212 @@ def scat_lin_fit_sl1(indep, dep):
     #calculate mean absolute error
     # mae=(np.absolute(fit_y-dep)).mean()
 
-    return linx, liny, lowy, upy, rmse, slope, intercept
+    return linx, liny, lowy, upy, rmse, intercept
 
 
 def makeplot(plotinfo, ax):
+    """
+    Given information about the plot, create it on the given axis.
+
+    Parameters
+    ----------
+    plotinfo: dict
+        Information needed to construct the plot, including the input data and plot formatting kwargs
+    ax: matplotlib axes object
+        Axis on which to put the plot
+    """
     
     if plotinfo['plottype'] == 'scatter':
         ax.errorbar(plotinfo['x'], plotinfo['y'], **plotinfo['kwargs'])
         return ax
         
     elif plotinfo['plottype'] == 'line':
-        linx, liny, lowy, upy, rmsefit, slp, interceptfit = scat_lin_fit_sl1(plotinfo['x'], plotinfo['y'])            
+        linx, liny, lowy, upy, rmsefit, interceptfit = scat_lin_fit_sl1(plotinfo['x'], plotinfo['y'])            
             
         ax.plot(linx, liny, color=plotinfo['color'])
         ax.fill_between(linx, lowy, upy, color=plotinfo['color'], alpha=0.2)
-        ax.text(0.55, 0.07-0.05*n,'$RMSE=%0.2f$, $int=%0.2f$'% (rmsefit, interceptfit),
+        ax.text(0.55, 0.07-0.05*plotinfo['ct'],'$RMSE=%0.2f$, $int=%0.2f$'% (rmsefit, interceptfit),
                 color=plotinfo['color'], transform=ax.transAxes)
         return ax
 
-        
 
-# ToDo: functionize this (or at least parts of it)
-def meas_vs_infer_fig(berg_data):
+def meas_vs_infer_fig(berg_data, save=False):
+    """
+    Create a figure of measured versus inferred data. On the left is a comparison of inferred values to directly measured values.
+    On the right is a plot of inferred values to gridded values that have not been directly observed.
+    """    
+  
+    # direct-measured subdataset
+    low_err_data = berg_data.where((berg_data.bmach_source >= 10) & (berg_data.ibcao_source <40)).dropna(axis='index')
+    # indirect-measured subdataset
+    high_err_data = berg_data.where((berg_data.bmach_source<10) | (berg_data.ibcao_source >=40)).dropna(axis='index')
 
+    # for each item plotted, a dict is created with the input data, plot type, and plot format information.
+    # These are ultimately passed into `makeplot`
 
-#  MOVE THIS FILTERING TO PLOTTING PORTION
-# mask out non-bathymetry data sources
-#         dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="source", varname="bmach_source")
-#         dataset['bmach_meas_bed'] = dataset['bmach_bed'].where(dataset.bmach_source >=10)
-#         dataset['bmach_meas_errbed']= dataset['bmach_errbed'].where(dataset.bmach_source >=10)            
-        
-#         dataset['bmach_meas_bed'] = dataset['bmach_meas_bed'].where((dataset.bmach_meas_bed != -9999) & (dataset.bmach_errbed < 50))
-#         dataset['bmach_meas_errbed']= dataset['bmach_meas_errbed'].where((dataset.bmach_meas_errbed != -9999) & (dataset.bmach_errbed < 50))
-    
-    
-    
-
-    
-    
-    bmach_med_inf = {'x': berg_data['meas_depth_med'],
-                     'y': berg_data['filtered_draft_med'],
+    # Direct measured - scatter    
+    bmach_med_inf = {'x': -low_err_data['bmach_bed'],
+                     'y': low_err_data['filtered_draft_med'],
                      'plottype': 'scatter',
-                     kwargs: {xerr:
-                              yerr:
-                              fmt: 's',
-                              color:(0,.5,0) #dark green,
-                              label: 'Median (BMach)'}
+                     'kwargs': {'xerr': -low_err_data['bmach_errbed'],
+                              'yerr': low_err_data['filtered_draft_err'],
+                              'fmt': 's',
+                              'color':(0,.5,0), #dark green,
+                              'label': 'Median, BMach'}
                     }
     
-    bmach_max_inf = {'x': berg_data['meas_depth_med'],
-                     'y': berg_data['filtered_draft_max'],
+    bmach_max_inf = {'x': -low_err_data['bmach_bed'],
+                     'y': low_err_data['filtered_draft_max'],
                      'plottype': 'scatter',
-                     kwargs: {xerr:
-                              yerr:
-                              fmt: 's',
-                              color:(0.2,0.9,0.2) #light green,
-                              label: 'Maximum (BMach)'}
+                     'kwargs': {'xerr': -low_err_data['bmach_errbed'],
+                              'yerr': low_err_data['filtered_draft_err'],
+                              'fmt': 's',
+                              'color':(0.2,0.9,0.2), #light green,
+                              'label': 'Maximum, BMach'}
                     }
 
-#     ibcao_med_inf = {'x': berg_data['meas_depth_med'],
-#                      'y': berg_data['filtered_draft_med'],
-#                      'plottype': 'scatter',
-#                      kwargs: {xerr:
-#                               yerr:
-#                               fmt: 's',
-#                               color:(0,.5,0) #dark green,
-#                               label: 'Median (BMach)'}
-#                     }
+    ibcao_med_inf = {'x': -low_err_data['ibcao_bed'],
+                     'y': low_err_data['filtered_draft_med'],
+                     'plottype': 'scatter',
+                     'kwargs': {'fmt': 'd',
+                              'color':(0,.5,0), #dark green,
+                              'label': 'Median, IBCAO'}
+                    }
     
-#     ibcao_max_inf = {'x': berg_data['meas_depth_med'],
-#                      'y': berg_data['filtered_draft_max'],
-#                      'plottype': 'scatter',
-#                      kwargs: {xerr:
-#                               yerr:
-#                               fmt: 's',
-#                               color:(0.2,0.9,0.2) #light green,
-#                               label: 'Maximum (BMach)'}
-#                     }
+    ibcao_max_inf = {'x': -low_err_data['ibcao_bed'],
+                     'y': low_err_data['filtered_draft_max'],
+                     'plottype': 'scatter',
+                     'kwargs': {'fmt': 'd',
+                              'color':(0.2,0.9,0.2), #light green,
+                              'label': 'Maximum, IBCAO'}
+                    }
 
         
+    # Direct measured - fit lines    
+    med_inf_fit = {'x': np.array(-low_err_data['bmach_bed'], -low_err_data['ibcao_bed']),
+                     'y': np.array(low_err_data['filtered_draft_med'], low_err_data['filtered_draft_med']),
+                     'plottype': 'line',
+                     'color':(0,.5,0), #dark green,
+                     'ct': 0
+                    }
 
+    max_inf_fit = {'x': np.array(-low_err_data['bmach_bed'], -low_err_data['ibcao_bed']),
+                     'y': np.array(low_err_data['filtered_draft_max'], low_err_data['filtered_draft_max']),
+                     'plottype': 'line',
+                     'color':(0.2,0.9,0.2), #light green,
+                     'ct': 1
+                    }
+
+    # Indirect measured - scatter    
+    bmach_indir_med_inf = {'x': -high_err_data['bmach_bed'],
+                     'y': high_err_data['filtered_draft_med'],
+                     'plottype': 'scatter',
+                     'kwargs': {'xerr': -high_err_data['bmach_errbed'],
+                              'yerr': high_err_data['filtered_draft_err'],
+                              'fmt': 's',
+                              'color':(0,.5,0), #dark green,
+                              'label': 'Median, BMach'}
+                    }
+    
+    bmach_indir_max_inf = {'x': -high_err_data['bmach_bed'],
+                     'y': high_err_data['filtered_draft_max'],
+                     'plottype': 'scatter',
+                     'kwargs': {'xerr': -high_err_data['bmach_errbed'],
+                              'yerr': high_err_data['filtered_draft_err'],
+                              'fmt': 's',
+                              'color':(0.2,0.9,0.2), #light green,
+                              'label': 'Maximum, BMach'}
+                    }
+
+    ibcao_indir_med_inf = {'x': -high_err_data['ibcao_bed'],
+                     'y': high_err_data['filtered_draft_med'],
+                     'plottype': 'scatter',
+                     'kwargs': {'fmt': 'd',
+                              'color':(0,.5,0), #dark green,
+                              'label': 'Median, IBCAO'}
+                    }
+    
+    ibcao_indir_max_inf = {'x': -high_err_data['ibcao_bed'],
+                     'y': high_err_data['filtered_draft_max'],
+                     'plottype': 'scatter',
+                     'kwargs': {'fmt': 'd',
+                              'color':(0.2,0.9,0.2), #light green,
+                              'label': 'Maximum, IBCAO'}
+                    }
+
+        
+    # Indirect measured - fit lines    
+    med_indir_fit = {'x': np.array(-high_err_data['bmach_bed'], -high_err_data['ibcao_bed']),
+                     'y': np.array(high_err_data['filtered_draft_med'], high_err_data['filtered_draft_med']),
+                     'plottype': 'line',
+                     'color':(0,.5,0), #dark green,
+                     'ct': 0
+                    }
+
+    max_indir_fit = {'x': np.array(-high_err_data['bmach_bed'], -high_err_data['ibcao_bed']),
+                     'y': np.array(high_err_data['filtered_draft_max'], high_err_data['filtered_draft_max']),
+                     'plottype': 'line',
+                     'color':(0.2,0.9,0.2), #light green,
+                     'ct': 1
+                    }
     
     
-    
-#     cols_dep = ['filtered_draft_med','filtered_draft_max']
-#     cols_indep = ['meas_depth_med','meas_depth_med']
-    cols = {'Direct Measurements': [bmach_med_inf, bmach_max_inf]} #, ibcao_med_inf, ibcao_max_inf],
-#             'Indirect Measurements':[bmach_indir_med_inf, bmach_indir_max_inf] #, ibcao_indir_med_inf, ibcao_indir_max_inf]
-#            }
+    # a list of individual plots (in the dicts above) that go into each subplot (column) of the figure
+    cols = {'Direct Measurements': [bmach_med_inf, bmach_max_inf, ibcao_med_inf, ibcao_max_inf, med_inf_fit, max_inf_fit],
+            'Indirect Measurements':[bmach_indir_med_inf, bmach_indir_max_inf, ibcao_indir_med_inf, ibcao_indir_max_inf, med_indir_fit, max_indir_fit]
+           }
 
-    plot_title = 'Comparison of Grid Product and Iceberg Freeboard-\ninferred Bathymetry Values'
-    # fig_name = 'measuredmed_vs_inferred.png'
-
-#     berg_data = berg_data.dropna(axis='index', subset=cols_dep+cols_indep)
+    plot_title = 'Comparison of Gridded Products and Iceberg Freeboard-inferred Bathymetry Values'
 
     sz=6.5 #4.5
     nrows=1
     ncols=len(cols)
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols*sz,nrows*sz), squeeze=False) #fig size is width, ht in inches; orig 10,5
 
-#     meas=[]; meas_err=[]; infer=[]; infer_err=[]
-
     for i in range(0,nrows):
         
-        for j in range(0, ncols):
+        for j, plotcol in zip(range(0, ncols), cols.keys()):
             # plot the data
-            
-            for indplot in cols.keys()[j]:
+            for indplot in cols[plotcol]:
                 axes[i,j] = makeplot(indplot, axes[i,j])
         
-        
-            
-        #get DEM method data
-#         for k in range(0,len(cols_indep)):
-#             print(cols_indep[k] +' vs ' + cols_dep[k])
-            
-#             meas.append(-berg_data[cols_indep[k]])
-#             meas_err.append(berg_data.meas_depth_err)
-#             infer.append(berg_data[cols_dep[k]])
-#             infer_err.append(berg_data.filtered_draft_err)
-
-#             k=None
-
-#         #plot data on first figure
-#         j=0
-# #         symbol = ['s','s']
-# #         # wdsymbol = ['D','D']
-# #         color = [(0,.5,0),(0.2,0.9,0.2)]  #dark green, light green
-# #         # facecolor = [(0,.6,0),(0.2,0.9,0.2)]
-# #         lbl=['median','maximum']
-# #         fjdlbl=['II ','NJ ']
-#         for n in range(0,2):
-#             #plot data (JI DEM)
-            
-#             axes[i,j].errorbar(meas[n],infer[n], xerr=meas_err[n], yerr=infer_err[n], fmt=symbol[n], \
-#                 color=color[n], capsize=2, label=fjdlbl[0] + lbl[n])
-#     #            color=color[n], capsize=2, label=lbl[n]+'\n(%0.2f)'% rmse[n])
-#     #            markerfacecolor=facecolor[n], markeredgecolor=edgecolor[n], ecolor=edgecolor[n], capsize=2)
-
-            
-#             linx, liny, lowy, upy, rmsefit, slp, interceptfit = scat_lin_fit_sl1(pandas.concat([meas[n]]), pandas.concat([infer[n]]))            
-            
-#             axes[i,j].plot(linx, liny, color=color[n])
-#             axes[i,j].fill_between(linx, lowy, upy, color=color[n], alpha=0.2)
-#             axes[i,j].text(0.55, 0.07-0.05*n,'$RMSE=%0.2f$, $int=%0.2f$'% (rmsefit, interceptfit), color=color[n], transform=axes[i,j].transAxes)
-#             # above x needs to be 0.41 with smaller figure
-#         linx=None; liny=None; lowy=None; upy=None; rmsefit=None; slp=None; interceptfit=None
-     
-#         n=None
-#     #    axes[i,j].set_title(col_labels[j], fontsize=11)
-#     #    axes[i,j].text(0.02, 0.95,'c', weight='bold', transform=axes[i,j].transAxes)
+            axes[i,j].set_title(plotcol, fontsize=11)
+            # axes[i,j].text(0.02, 0.95,'c', weight='bold', transform=axes[i,j].transAxes)
          
-#         plotmin = 50
-#         plotmax = 575
-#         axes[i,j].plot([plotmin,plotmax],[plotmin, plotmax], color='k', linestyle=':')
+            plotmin = 50
+            plotmax = 700
+            axes[i,j].plot([plotmin,plotmax],[plotmin, plotmax], color='k', linestyle=':')
 
-#         #modify the legend handle to not plot error bars
-#         handles, labels = axes[i,j].get_legend_handles_labels()  # get handles
-#         handles = [h[0] for h in handles]   # remove the errorbars
-#         axes[i,j].legend(handles, labels, loc=2) #bbox_to_anchor=(1, 1), 
+            #modify the legend handle to not plot error bars
+            handles, labels = axes[i,j].get_legend_handles_labels()  # get handles
+            handles = [h[0] for h in handles]   # remove the errorbars
+            axes[i,j].legend(handles, labels, loc=2) #bbox_to_anchor=(1, 1), 
 
-#         axes[i,j].set_ylim(plotmin,plotmax)
-#         axes[i,j].set_xlim(plotmin,plotmax)
-#         axes[i,j].set_aspect('equal')
+            axes[i,j].set_ylim(plotmin,plotmax)
+            axes[i,j].set_xlim(plotmin,plotmax)
+            axes[i,j].set_aspect('equal')
     
-#         meas=None
-#         infer=None
-#         meas_err=None
-#         infer_err=None
 
-#     fig.text(0.52, 0.04,'Measured Water Depth (m)', ha='center', va='center', fontsize=12)
-#     fig.text(0.03, 0.5,'Inferred Water Depth (m)', ha='center', va='center', rotation='vertical', fontsize=12)
+    fig.text(0.52, 0.04,'Measured Water Depth (m)', ha='center', va='center', fontsize=12)
+    fig.text(0.03, 0.5,'Inferred Water Depth (m)', ha='center', va='center', rotation='vertical', fontsize=12)
             
-#     fig.suptitle(plot_title, fontsize=14)
+    fig.suptitle(plot_title, fontsize=14)
 
 #     if nrows<2:
 #         fig.subplots_adjust(top=0.87, bottom=0.13, wspace=0.6, left=0.08, right=0.99) #for rec plot: (top=0.85, bottom=0.15, wspace=0.6, left=0.15, right=0.95)
 #     else:        
-#         fig.subplots_adjust(hspace=0.3, wspace = 0.2, top=0.87) #orig (before legend between plots) wspace = 0.2
+#         fig.subplots_adjust(hspace=0.3, wspace = 0.2, top=0.87)
 
     plt.show()
 
-    # %%export figure to png
-    # fig_save_path = '/Users/jessica/Figures/GreenlandFjordBathymetry/results/'
-    # fig.savefig(fig_save_path+fig_name, format='png', dpi=800)
+    if save==True:
+        fig_name = 'measured_vs_inferred_' + berg_data.fjord.iloc[0] +'.png'
+        fig_save_path = '/Users/jessica/projects/bathymetry_from_bergs/prelim_results/'
+        fig.savefig(fig_save_path+fig_name, format='png', dpi=800)
 
-
+   
     
-    
-    #     meas_src = {'bmach': {'color': 'green',
+#     meas_src = {'bmach': {'color': 'green',
 #                          'shape': 's'
 #                          }
 #                 'ibcao': {'color': 'blue',

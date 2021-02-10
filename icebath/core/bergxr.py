@@ -8,6 +8,7 @@ import numpy as np
 # import fnmatch
 import pyproj
 import rasterio.features
+import rioxarray
 from shapely.geometry import box
 from shapely.geometry import Polygon as shpPolygon
 from shapely.ops import unary_union
@@ -137,7 +138,6 @@ class BergXR:
                                          out_shape = (len(self._xrds.y), len(self._xrds.x)),
                                          transform= self._xrds.attrs['transform'],
                                          invert=False)
-        # print(np.shape(landmsk))
         # plt.imshow(landmsk)
 
         # check for negative transform values. If true, then flip along the appropriate x/y coordinates before putting into xarray dataset
@@ -152,14 +152,12 @@ class BergXR:
         
         
         # clip original shapefile to XArray extent plus a half-pixel buffer
-        clipped_shpfl = gpd.clip(shpfl, box(self._xrds.x.min().item()-0.5*self._xrds.attrs['res'][0],
-                                            self._xrds.y.min().item()-0.5*self._xrds.attrs['res'][1], 
-                                            self._xrds.x.max().item()+0.5*self._xrds.attrs['res'][0], 
-                                            self._xrds.y.max().item()+0.5*self._xrds.attrs['res'][1]))
-        self._xrds.attrs[name] = unary_union(clipped_shpfl.geometry) #[shpfl.geometry.exterior[row_id].coords for row_id in range(shpfl.shape[0])])
-        # self._xrds.attrs[name] = [list(shpfl.geometry.exterior[row_id].coords) for row_id in range(shpfl.shape[0])]
+        # clipped_shpfl = gpd.clip(shpfl, box(self._xrds.x.min().item()-0.5*self._xrds.attrs['res'][0],
+        #                                     self._xrds.y.min().item()-0.5*self._xrds.attrs['res'][1], 
+        #                                     self._xrds.x.max().item()+0.5*self._xrds.attrs['res'][0], 
+        #                                     self._xrds.y.max().item()+0.5*self._xrds.attrs['res'][1]))
+        # self._xrds.attrs[name] = unary_union(clipped_shpfl.geometry) #[shpfl.geometry.exterior[row_id].coords for row_id in range(shpfl.shape[0])])
 
-        # return self._xrds
 
 
     def get_new_var_from_file(self, req_dim=['x','y'], newfile=None, variable=None, varname=None):
@@ -171,7 +169,8 @@ class BergXR:
 
         self._validate(self, req_dim)
 
-        print("Note that the new file is assumed to have the same CRS as the dataset to which it is being added")
+        print("Note that the new file is reprojected to have the same CRS as the dataset to which it is being added.\
+        However, if the two CRSs are compatible, the spatial properties of the new file may be added to or overwrite the ones of the existing dataset")
 
         # add check for existing file?
         assert newfile != None, "You must provide an input file of the dataset to add."
@@ -180,19 +179,17 @@ class BergXR:
         # in an ideal world, we'd read this in chunked with dask. however, this means (in the case of Pangeo) that the file
         # needs to be in cloud storage, since the cluster can't access your home directory
         # https://pangeo.io/cloud.html#cloud-object-storage
-        with xr.open_dataset(newfile) as newdset: #, chunks={'x': 500, 'y': 500}) as newdset:
-        
+        with rioxarray.open_rasterio(newfile) as newdset: #, chunks={'x': 500, 'y': 500}) as newdset:
+            try: newdset=newdset.squeeze().drop('band')
+            except ValueError: pass
 #         newdset = xr.open_dataset(newfile, chunks={'x': 500, 'y': 500})
-        # Improvement: implement rioxarray.open_rasterio(newfile) to handle CRS
+        # Improvement: actually check CRS matching
         # apply the existing chunking to the new dataset
+            newdset = newdset.rio.reproject(dst_crs=self._xrds.attrs['crs']).chunk({'x': 1000, 'y': 1000})
             newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
-#         newdset.close()
-#         del newdset
-        
-#         print(newvar)
+
             self._xrds[varname] = newvar
-#         del newvar
-#         print(self._xrds)
+            del newvar
         
 
     def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime','geoid']},

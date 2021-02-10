@@ -132,3 +132,7 @@ dmypy.json
 .h5
 .tif
 .nc
+
+# misc
+.DS_Store
+.vscode

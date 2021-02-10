@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import rasterio.transform
 from rasterio.errors import RasterioIOError
+import rioxarray
 import xarray as xr
 import warnings
 
@@ -86,6 +87,7 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
     # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
     # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
     
+    # using rioxarray means the transform is read in/created as part of the geospatial info, so it's unnecessary to manually create a transform
     # create affine transform for concatted dataset
     print('Please note the transform is computed assuming a coordinate reference system\
  where x(min) is west and y(min) is south')
@@ -94,6 +96,9 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
                                              ds.x.max().item()+0.5*ds.attrs['res'][0], ds.y.max().item()+0.5*ds.attrs['res'][1], 
                                              len(ds.x), len(ds.y))
     ds.attrs['transform'] = transform
+    # set the transform and crs as attributes since that's how they're accessed later in the pipeline
+    # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
+    # ds.attrs['crs'] = ds.spatial_ref.crs_wkt
     
     return ds
 
@@ -104,6 +109,8 @@ def read_DEM(fn=None):
     """
     
     # Rasterio automatically checks that the file exists
+    # ultimately switch to using rioxarray, but it causes issues down the pipeline so it will need to be debugged through
+    # with rioxarray.open_rasterio(fn) as src:
     with xr.open_rasterio(fn) as src:
         darr = src
 
