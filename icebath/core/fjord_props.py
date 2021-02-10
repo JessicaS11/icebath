@@ -3,7 +3,7 @@ def get_sw_dens(fjord):
     Get the fjord-specific seawater density, in kg/m3
     """
     rho_sw = {"JI":1027.3, "UP":1028.5}
-    rho_sw_err = {"JI":1, "UP":1}
+    rho_sw_err = {"JI":1, "UP":1, "KB":1}
 
     try:
         return [rho_sw.pop(fjord), rho_sw_err.pop(fjord)]
@@ -58,10 +58,10 @@ def get_fjord_bounds(fjord):
     Coordinates are in NSIDC Polar Geospatial Coordinates (EPSG:3413)
     """
     
-    minx = {"JI": -440795.0}
-    maxx = {"JI": -144209.6}
-    miny = {"JI": -2354791.7}
-    maxy = {"JI": -2076077.5}
+    minx = {"JI": -440795.0, "KB": -456119.7}
+    maxx = {"JI": -144209.6, "KB": -364443.8}
+    miny = {"JI": -2354791.7, "KB": -1104271.1}
+    maxy = {"JI": -2076077.5, "KB": -1007037.0}
 
     try:
         return (minx.pop(fjord), miny.pop(fjord), maxx.pop(fjord), maxy.pop(fjord))
