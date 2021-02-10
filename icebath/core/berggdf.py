@@ -187,10 +187,14 @@ class BergGDF:
         '''
         # Bug (rioxarray): rasterio.rio.set_crs and clip box work, but just using raster.rio.clip 
         # with a specified crs (and bounds as the polygon) gives a crs error. Huh?
+        # Rioxarray improvement: in rio.clip_box, if there's not an exact match it returns a
+        # 1D raster error rather than matching to the nearest coordinate value or indicating that's the issue
         raster.rio.set_crs(crs)
         try:
-            subset_raster = raster.rio.clip_box(*datarow[geom_name].bounds)
+            # subset_raster = raster.rio.clip_box(*datarow[geom_name].bounds)
             # subset_raster = raster.rio.clip([datarow[geom_name].bounds], crs=crs)
+            bounds = datarow[geom_name].bounds
+            subset_raster = raster.sel(x=slice(bounds[0], bounds[2]), y=slice(bounds[1],bounds[3]))
             vals = subset_raster.rio.clip([datarow[geom_name]], crs=crs).values.flatten()
             # rioxarray introduces a fill value, regardless of the input nodata setup
             vals[vals==-9999] = np.nan
@@ -199,33 +203,36 @@ class BergGDF:
             vals = np.nan
         return vals
       
-    # ToDo: generalize the variable/variable names to the function level (so not so BedMachine specific)
-    def get_meas_wat_depth(self, dataset, src_fl):
+    def get_meas_wat_depth(self, dataset, src_fl, vardict={}, nanval=None):
         """
         Get water depths where measurements are available
+        
+        Parameters
+        ----------
+        dataset : XArray dataset
+                dataset containing the spatial area of interest with x and y dimensions
+        src_fl : source file, string
+                The full path of the measurement data source file
+        vardict : variable mapping, dictionary
+                Key-value pairs mapping the source dataset keys to their new variable names in the dataset
         """
 
         assert type(dataset)==xr.core.dataset.Dataset, "You must input an Xarray dataset from which to get measured values"
+        assert vardict != {}, "You must specify your origin variables and their dataset names"
 
         # ToDo: add check to see if the layers are already there...
         # Note: assumes compatible CRS systems
-        dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="bed", varname="bmach_bed")
-        dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="errbed", varname="bmach_errbed")
-
-        # mask out non-bathymetry data sources
-        dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], newfile=src_fl, variable="source", varname="bmach_source")
-        dataset['bmach_bed'] = dataset['bmach_bed'].where(dataset.bmach_source >=10)
-        dataset['bmach_errbed']= dataset['bmach_errbed'].where(dataset.bmach_source >=10)
-
-        dataset['bmach_bed'] = dataset['bmach_bed'].where((dataset.bmach_bed != -9999) & (dataset.bmach_errbed < 50))
-        dataset['bmach_errbed']= dataset['bmach_errbed'].where((dataset.bmach_errbed != -9999) & (dataset.bmach_errbed < 50))
-
-        # print(dataset['bmach_bed'])
-
-        # Note: rioxarray does not carry crs info from the dataset to individual variables
-        px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
-                                    args=('berg_poly', dataset['bmach_bed']), **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
-        self._gdf['meas_depth_med'] = px_vals.apply(np.nanmedian)
-
-        px_vals = self._gdf.apply(self.get_px_vals, axis=1, args=('berg_poly',dataset['bmach_errbed']), **{"crs": dataset.attrs['crs']})
-        self._gdf['meas_depth_err'] = px_vals.apply(np.nanmedian)
+        for key in vardict.keys():
+            dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], 
+                                                 newfile=src_fl, 
+                                                 variable=key, 
+                                                 varname=vardict[key])
+            if nanval != None:
+                dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)
+                
+            # Note: rioxarray does not carry crs info from the dataset to individual variables
+            px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
+                                    args=('berg_poly', 
+                                          dataset[vardict[key]]), 
+                                          **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
+            self._gdf[vardict[key]] = px_vals.apply(np.nanmedian)

@@ -4,58 +4,90 @@ import os
 import pandas as pd
 import rasterio.transform
 from rasterio.errors import RasterioIOError
+import rioxarray
 import xarray as xr
 import warnings
 
 from icebath.core import fjord_props
 
-def xrds_from_dir(path=None):
+import faulthandler
+faulthandler.enable()
+
+def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
     """
     Builds an XArray dataset of DEMs for finding icebergs when passed a path to a directory"
     """
     warnings.warn("This function currently assumes a constant grid and EPSG for all input files")
+    assert fjord != None, "You must specify the fjord code for these DEMs"
 
     files = [f for f in os.listdir(path) if f.endswith('dem.tif')]
+
+    # for DEMs nested in directories
+    if len(files) == 0:
+        try: 
+            os.remove(path+'.DS_Store')
+        except FileNotFoundError:
+            pass
+        dirs = [dir for dir in os.listdir(path)]
+        nestfiles=[]
+        for dir in dirs:
+            nestfiles.append([dir+'/'+f for f in os.listdir(path+dir) if f.endswith('dem.tif')])
+        files = [items for nest in nestfiles for items in nest]
 
     i=0
     darrays = list(np.zeros(len(files)))
     dtimes = list(np.zeros(len(files)))
     for f in files:
         print(f)
+
+        metaf = f.rpartition("_dem.tif")[0] +  metastr + ".txt"
+        try:
+            meta = read_meta(path+metaf)
+            # print(meta)
+            dtimes[i] = get_DEM_img_times(meta)
+        except FileNotFoundError:
+            print("You must manually enter dtimes for these files within the code")
+            # dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
+            # dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
+        # except KeyError:
+        #     raise
+        except AssertionError:
+            print("These stereo image times are >30 min apart... skipped")
+            continue
+
         try:
             darrays[i] = read_DEM(path+f)
             # darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
         except RasterioIOError:
             print("RasterioIOError on your input file")
-            break
-        
-        metaf = f.rpartition("_dem.tif")[0] + "_mdf.txt"
-        try:
-            # Note: the metadata is specifically for the original DEMs,
-            # not those corrected to the geoid that are read in here
-            meta = read_meta(path+metaf)
-            dtimes[i] = get_DEM_img_times(meta)
-        except FileNotFoundError:
-            print("You must manually enter dtimes for these files within the code")
-            dtimes[0] = dt.datetime(2012, 6, 29, hour=15, minute=26, second=30)
-            dtimes[1] = dt.datetime(2010, 8, 14, hour=15, minute=34)
+            break        
 
         i = i + 1
 
+    if len(darrays)==1:
+        assert np.all(darrays[0]) != 0, "Your DEM will not be put into XArray"
+    else:
+        assert np.all(darrays[darrays!=0]) != 0, "None of your DEMs will be put into XArray"
+    
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
-    darr = xr.concat(darrays, dim=pd.Index(dtimes, name='dtime'))#, 
-                    # coords=['x','y'], join='outer')
+    darr = xr.concat(darrays, 
+                    dim=pd.Index(dtimes, name='dtime'), 
+                    # coords=['x','y'], 
+                    join='outer').chunk({'dtime': 1, 'x':5000, 'y':5000}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
                     # combine_attrs='no_conflicts' # only in newest version of xarray
 
+    del darrays
+    
     # convert to dataset with elevation as a variable and add attributes
     attr = darr.attrs
     ds = darr.to_dataset()
     ds.attrs = attr
-    # ds.attrs['offset_names'] = ('geoid_offset')
+    ds.attrs['fjord'] = fjord
     attr=None
     # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
     # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
     
+    # using rioxarray means the transform is read in/created as part of the geospatial info, so it's unnecessary to manually create a transform
     # create affine transform for concatted dataset
     print('Please note the transform is computed assuming a coordinate reference system\
  where x(min) is west and y(min) is south')
@@ -64,6 +96,9 @@ def xrds_from_dir(path=None):
                                              ds.x.max().item()+0.5*ds.attrs['res'][0], ds.y.max().item()+0.5*ds.attrs['res'][1], 
                                              len(ds.x), len(ds.y))
     ds.attrs['transform'] = transform
+    # set the transform and crs as attributes since that's how they're accessed later in the pipeline
+    # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
+    # ds.attrs['crs'] = ds.spatial_ref.crs_wkt
     
     return ds
 
@@ -74,6 +109,8 @@ def read_DEM(fn=None):
     """
     
     # Rasterio automatically checks that the file exists
+    # ultimately switch to using rioxarray, but it causes issues down the pipeline so it will need to be debugged through
+    # with rioxarray.open_rasterio(fn) as src:
     with xr.open_rasterio(fn) as src:
         darr = src
 
@@ -105,16 +142,58 @@ def read_DEM(fn=None):
     return darr
 
 
+def get_dtime(string, startidx, endidx, fmtstr):    
+    # print(string)
+    # print(string[startidx:endidx])
+    if '/' in string:
+        string = string.split("/")[-1]
+        # print(string)
+    dtime = dt.datetime.strptime(string[startidx:endidx], fmtstr)
+    return dtime
+
 def get_DEM_img_times(meta):
     
-    img1 = meta["sourceImage1"]
-    img2 = meta["sourceImage2"]
- 
-    dtime1 = dt.datetime.strptime(img1[6:20], '%Y%m%d%H%M%S')
-    dtime2 = dt.datetime.strptime(img2[6:20], '%Y%m%d%H%M%S')
+    posskeys = {"sourceImage1":"sourceImage2",
+                "Image_1_Acquisition_time":"Image_2_Acquisition_time",
+                "Image 1":"Image 2"}
+    # posskeys = {"fakekey": 12}
 
-    assert (dtime1-dtime2 < dt.timedelta(minutes=30)), "These stereo image times are >30 min apart"
-    dtime = dt.datetime.fromtimestamp((dtime1.timestamp() + dtime2.timestamp())//2)
+    dtstrings = {"sourceImage1":(6,20, '%Y%m%d%H%M%S'),
+                "Image_1_Acquisition_time":(0, -1,  '%Y-%m-%dT%H:%M:%S.%f'),
+                "Image 1":(5,19, '%Y%m%d%H%M%S')}  # -70,-56
+
+    if np.any([thekey in list(meta.keys()) for thekey in list(posskeys.keys())]):
+        pass
+    else:
+        raise KeyError("Appropriate metadata keys are not available or need to be added to the list")
+
+    for key in list(posskeys.keys()):
+        if key in list(meta.keys()):
+            d1strs = meta[key]
+            d2strs = meta[posskeys[key]]
+            break
+        else:
+            continue
+
+    dtime1list = []
+    dtime2list = []
+    for (d1str, d2str) in zip(d1strs, d2strs):
+        dtime1list.append(get_dtime(d1str, *dtstrings[key]))
+        dtime2list.append(get_dtime(d2str, *dtstrings[key]))
+    
+    dtimelist = []
+    for i in range(0, len(dtime1list)):
+        assert (abs(dtime1list[i]-dtime2list[i]) < dt.timedelta(minutes=30)), "These stereo image times are >30 min apart"
+        dtimelist.append(dt.datetime.fromtimestamp((dtime1list[i].timestamp() + dtime2list[i].timestamp())//2))
+        
+        if i > 0:
+            assert (abs(dtimelist[i]-dtimelist[i-1]) < dt.timedelta(minutes=30)), "These DEM times are >30 min apart"
+        
+    if len(dtimelist) == 1:
+        dtime = dtimelist[0]
+    else:
+        sumdtime = dt.datetime.fromtimestamp(np.sum(dtime.timestamp() for dtime in dtimelist))
+        dtime = dt.datetime.fromtimestamp(sumdtime.timestamp()//len(dtimelist))
 
     return dtime
 
@@ -149,12 +228,19 @@ def read_meta(metafn=None):
 
     metadata = {}
 
+    # potential future improvement: strip quotation marks from strings, where applicable. Will then need to adjust
+    # the indices used to get the dates and times in the functions above 
+    # (get_DEM_img_times: dtstrings = {"sourceImage1":(5,19, '%Y%m%d%H%M%S')})
+
     #each key is equated with '='. This loop strips and seperates then fills the dictonary.
     with open(metafn) as f:    
         for line in f:
             if not line.strip(';') == "END":
                 val = line.strip().split('=')
-                metadata[val[0].strip()] = val[1].strip().strip(';')      
+                if len(val) == 1:
+                    continue
+                else:
+                    metadata.setdefault(val[0].strip(), []).append(val[1].strip().strip(';'))     
             else:
                 break
 	

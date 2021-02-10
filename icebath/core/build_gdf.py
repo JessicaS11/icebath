@@ -56,9 +56,8 @@ def gdf_of_bergs(onedem):
         flipax.append(1)
     if trans[4] < 0:
         flipax.append(0)
-
-    # TODO: generalize the fjord input
-    fjord='JI'
+    
+    fjord = onedem.attrs['fjord']
     max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
     min_area = fjord_props.get_min_berg_area(fjord)
 
@@ -66,17 +65,21 @@ def gdf_of_bergs(onedem):
     
     # create copy of elevation values so original dataset values are not impacted by image manipulations
     # and positive/negative coordinate systems can be ignored (note flipax=[] below)
+    # something wonky is happening and when I ran this code on Pangeo I needed to NOT flip the elevation values here and then switch the bounding box y value order
+    # Not entirely sure what's going on, but need to be aware of this!!
+    print("NOTE: check for proper orientation of results depending on compute environment. Pangeo results were upside down.")
+    # elev_copy = np.copy(onedem.elevation.values)
     elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
-    flipax=[]
-
+    # flipax=[]
+    
     # generate a labeled array of potential iceberg features, excluding those that are too large or small
-    seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=flipax)
+    seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=[])
     print("Got labeled raster of potential icebergs for an image")
-
     # remove features whose borders are >50% no data values (i.e. the "iceberg" edge is really a DEM edge)
-    labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=flipax).astype(seglabeled_arr.dtype)
-    # apparently rasterio can't handle int64 inputs, which is what border_filtering returns
-
+    #########!!!!!!!!!!!!!!
+    labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[]).astype(seglabeled_arr.dtype)
+    # apparently rasterio can't handle int64 inputs, which is what border_filtering returns   
+    
     # create iceberg polygons and put in a geodataframe, excluding icebergs that don't meet the requirements
     # Note: features.shapes returns a generator. However, if we try to iterate through it with a for loop, the StopIteration exception
     # is not passed up into the for loop and execution hangs when it hits the end of the for loop without completing the function
@@ -129,8 +132,13 @@ def gdf_of_bergs(onedem):
         # bounds: (minx, miny, maxx, maxy)
         bound_box = origberg.bounds
         berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
-                                        y=slice(bound_box[1]-buffer, bound_box[3]+buffer))
+                                        # y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo? May have been because of issues with applying transform to right-side-up image above?
+                                        y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
         
+        
+#         print(bound_box)
+#         print(berg_dem)
+#         print(np.shape(berg_dem))
         # extract the iceberg elevation values
         # Note: rioxarray does not carry crs info from the dataset to individual variables
         vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
@@ -172,8 +180,13 @@ def gdf_of_bergs(onedem):
         sl_adjs.append(sl_adj)
 
     # delete generator object so no issues between DEMs
+    # delete arrays in memory (should be done automatically by garbage collector)
     try:
         del poss_bergs
+        del elev_copy
+        del seglabeled_arr
+        del labeled_arr
+        
     except NameError:
         pass
     

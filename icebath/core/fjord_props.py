@@ -52,5 +52,19 @@ def get_ice_thickness(fjord):
         "The current fjord does not have a location entry - using a default value!"
         return 1500
 
+def get_fjord_bounds(fjord):
+    """
+    Get geospatial bounds of the fjord to subset measurement files (e.g. BedMachine, IBCAO)
+    Coordinates are in NSIDC Polar Geospatial Coordinates (EPSG:3413)
+    """
+    
+    minx = {"JI": -440795.0}
+    maxx = {"JI": -144209.6}
+    miny = {"JI": -2354791.7}
+    maxy = {"JI": -2076077.5}
 
+    try:
+        return (minx.pop(fjord), miny.pop(fjord), maxx.pop(fjord), maxy.pop(fjord))
+    except KeyError:
+        "The current fjord does not have a bounding box entry"
 

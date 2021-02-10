@@ -174,19 +174,19 @@ def labeled_from_segmentation(elev, markers, resolution, min_area, flipax=[]):
     return labeled
 
 def test_feature(feat):
-    # print(feat)
+#     print(feat)
     bord_px = np.count_nonzero(feat>-888)
     nan_px = np.count_nonzero(np.isnan(feat)) # (feat==-999)
 
-    # print('feature count values')
-    # print(bord_px)
-    # print(nan_px)
+#     print('feature count values')
+#     print(bord_px)
+#     print(nan_px)
     
     if bord_px==0 or np.float(nan_px)/bord_px >= 0.5:
-        # print('too many nan')
+#         print('too many nan')
         return 0
     else:
-        # print('good berg')
+#         print('good berg')
         return 1
 
 def border_filtering(feature_arr, input_arr, flipax=[]):
@@ -216,7 +216,6 @@ def border_filtering(feature_arr, input_arr, flipax=[]):
     # iterate through the features and determine if each one should be included (1) or not (0)
     num_feats_rng = np.arange(1, np.nanmax(dilated_feats)+1)
     keep_feat_idx = ndimage.labeled_comprehension(input_arr, dilated_feats, num_feats_rng, test_feature, int, -1)
-
     # generate a keep_feature_array binary "mask" that matches the original feature_arr shape
     sort_idx = np.argsort(num_feats_rng)
     keep_feat_arr = keep_feat_idx[sort_idx][np.searchsorted(num_feats_rng, dilated_feats, sorter=sort_idx)]

@@ -12,6 +12,7 @@ dependencies:
   - python
   - scipy
   - scikit-learn
+  - skimage
   - xarray
 
   - cartopy
