@@ -185,10 +185,14 @@ class BergGDF:
                         turns it into a non-geo dataseries - currently noted as a bug with rioxarray (2021-01-11)
             raster : rioDataArray
         '''
+        
         # Bug (rioxarray): rasterio.rio.set_crs and clip box work, but just using raster.rio.clip 
         # with a specified crs (and bounds as the polygon) gives a crs error. Huh?
         # Rioxarray improvement: in rio.clip_box, if there's not an exact match it returns a
         # 1D raster error rather than matching to the nearest coordinate value or indicating that's the issue
+        # Code update/improvement: use GeoWombat, the xarray extension that has a function xr.gw.extract(geometry)
+        # https://geowombat.readthedocs.io/en/latest/extraction.html#extracting-data-with-polygon-geometry
+        
         raster.rio.set_crs(crs)
         try:
             # subset_raster = raster.rio.clip_box(*datarow[geom_name].bounds)
