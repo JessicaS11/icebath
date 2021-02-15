@@ -1,3 +1,4 @@
+import dask
 import shapely.geometry
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -207,7 +208,7 @@ def border_filtering(feature_arr, input_arr, flipax=[]):
     """
 
     # make original features a dummy value in the dataset so they're easy to not count
-    input_arr[feature_arr>0] = -888 # features masked in original data
+    input_arr[feature_arr>0] = -888
 
     # dilate the features using a 1 pixel plus structuring element
     dilated_feats = ndimage.grey_dilation(feature_arr, 

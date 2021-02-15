@@ -40,15 +40,17 @@ def poly_complexity(geom):
     geom : shapely Polygon geometry object
     """
 
-    # feature_compactness = find_feature_compactness(geom)
-    feature_convexity = find_feature_convexity(geom)
-    feature_amplitude = find_feature_amplitude(geom)
-    feature_vertices = find_feature_vertices(geom)
-    feature_notches = find_feature_notches(geom)
-    feature_notches_normalized = float(feature_notches) / (feature_vertices - 3)
-    feature_frequency = (16*((feature_notches_normalized - 0.5)**4)) - (8*(feature_notches_normalized - 0.5)**2) + 1
-    feature_complexity = find_feature_complexity(feature_convexity, feature_amplitude, feature_frequency)
-    
+    try:
+        # feature_compactness = find_feature_compactness(geom)
+        feature_convexity = find_feature_convexity(geom)
+        feature_amplitude = find_feature_amplitude(geom)
+        feature_vertices = find_feature_vertices(geom)
+        feature_notches = find_feature_notches(geom)
+        feature_notches_normalized = float(feature_notches) / (feature_vertices - 3)
+        feature_frequency = (16*((feature_notches_normalized - 0.5)**4)) - (8*(feature_notches_normalized - 0.5)**2) + 1
+        feature_complexity = find_feature_complexity(feature_convexity, feature_amplitude, feature_frequency)
+    except ZeroDivisionError:
+        feature_complexity = 0.0
     return feature_complexity
 
 def find_feature_compactness(geom):

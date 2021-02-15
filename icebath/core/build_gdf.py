@@ -1,4 +1,5 @@
 import datetime as dt
+import dask.array as da
 import numpy as np
 import os
 import geopandas as gpd
@@ -32,7 +33,9 @@ def xarray_to_gdf(xr):
     return berg_gdf
 
 
-def gdf_of_bergs(onedem):
+# Code Improvement: take the actual steps of computations out of this function and just combine the steps here
+# (e.g. functionize the array manipulations, calling either a dask or numpy version)
+def gdf_of_bergs(onedem, dask=True):
     """
     Takes an xarray dataarray for one time period and returns the needed geodataframe of icebergs
     """
@@ -58,54 +61,166 @@ def gdf_of_bergs(onedem):
         flipax.append(0)
     
     fjord = onedem.attrs['fjord']
-    max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
     min_area = fjord_props.get_min_berg_area(fjord)
 
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
-    
-    # create copy of elevation values so original dataset values are not impacted by image manipulations
-    # and positive/negative coordinate systems can be ignored (note flipax=[] below)
-    # something wonky is happening and when I ran this code on Pangeo I needed to NOT flip the elevation values here and then switch the bounding box y value order
-    # Not entirely sure what's going on, but need to be aware of this!!
-    print("NOTE: check for proper orientation of results depending on compute environment. Pangeo results were upside down.")
-    # elev_copy = np.copy(onedem.elevation.values)
-    elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
-    # flipax=[]
-    
-    # generate a labeled array of potential iceberg features, excluding those that are too large or small
-    seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=[])
-    print("Got labeled raster of potential icebergs for an image")
-    # remove features whose borders are >50% no data values (i.e. the "iceberg" edge is really a DEM edge)
-    #########!!!!!!!!!!!!!!
-    labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[]).astype(seglabeled_arr.dtype)
-    # apparently rasterio can't handle int64 inputs, which is what border_filtering returns   
-    
-    # create iceberg polygons and put in a geodataframe, excluding icebergs that don't meet the requirements
+
+    if dask==True:
+        # Daskify the iceberg segmentation process. Note that dask-image has some functionality to operate
+        # directly on dask arrays (e.g. dask_image.ndfilters.sobel), which would need to be put into utils.raster.py
+        # https://dask-image.readthedocs.io/en/latest/dask_image.ndfilters.html
+        # However, as of yet there doesn't appear to be a way to easily implement the watershed segmentation, other than in chunks
+        
+        # see else statement with non-dask version for descriptions of what each step is doing
+        def seg_wrapper(tiles):
+            return raster_ops.labeled_from_segmentation(tiles, [3,10], resolution=res, min_area=min_area, flipax=[])
+        def filter_wrapper(tiles, elevs):
+            return raster_ops.border_filtering(tiles, elevs, flipax=[])
+
+        elev_copy = onedem.elevation.data # should return a dask array
+        elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
+        seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, trim=False) # including depth=10 here will ADD another overlap
+        print("Got labeled raster of potential icebergs for an image")
+        labeled_overlap = da.map_overlap(filter_wrapper, seglabeled_overlap, elev_overlap, trim=False, dtype='int32')
+        labeled_arr = da.overlap.trim_overlap(labeled_overlap, depth=10)
+        
+        print(da.min(labeled_arr).compute())
+        print(da.max(labeled_arr).compute())
+        
+        print("about to get the list of possible bergs")
+        
+        poss_bergs = []
+        
+        def get_bergs(labeled_blocks):
+            block_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_blocks.astype('int32'), transform=trans))[:-1]
+            poss_bergs.append(block_bergs) 
+        
+        # 1. figure out how to get a non-array output from a blockwise applied function
+        # 2. figure out how to merge the geometries in a geodataframe (or elsewise) so that any touching pieces become one geometry
+        
+
+        dummy = da.blockwise(get_bergs, labeled_arr)
+        poss_bergs_gdf = gpd.GeoDataFrame(poss_bergs)
+        print(poss_bergs_gdf)
+        poss_bergs_input = poss_bergs_gdf.sjoin
+
+        # create iceberg polygons
+        # labeled_arr = labeled_arr.compute().astype('int32')
+        # labeled_arr[labeled_arr>0] = 1
+        # print(min(labeled_arr))
+        # print(max(labeled_arr))
+        
+        
+        poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
+            labeled_arr, transform=trans))[:-1]
+
+    else:
+        # create copy of elevation values so original dataset values are not impacted by image manipulations
+        # and positive/negative coordinate systems can be ignored (note flipax=[] below)
+        # something wonky is happening and when I ran this code on Pangeo I needed to NOT flip the elevation values here and then switch the bounding box y value order
+        # Not entirely sure what's going on, but need to be aware of this!!
+        print("NOTE: check for proper orientation of results depending on compute environment. Pangeo results were upside down.")
+        # elev_copy = np.copy(onedem.elevation.values)
+        elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
+        # flipax=[]
+        
+        # generate a labeled array of potential iceberg features, excluding those that are too large or small
+        seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=[])
+        print("Got labeled raster of potential icebergs for an image")
+        # remove features whose borders are >50% no data values (i.e. the "iceberg" edge is really a DEM edge)
+        labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[]).astype(seglabeled_arr.dtype)
+        # apparently rasterio can't handle int64 inputs, which is what border_filtering returns   
+
+        # create iceberg polygons 
+        poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=trans))[:-1]
+  
+        try:
+            del elev_copy
+            del seglabeled_arr
+            del labeled_arr
+        
+        except NameError:
+            pass
+   
+    print(type(poss_bergs))
+    print(len(poss_bergs))
+
     # Note: features.shapes returns a generator. However, if we try to iterate through it with a for loop, the StopIteration exception
     # is not passed up into the for loop and execution hangs when it hits the end of the for loop without completing the function
-    poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=trans))[:-1]
+    # Exclude icebergs that don't meet the requirments and put the rest into a generator (below)
+    bergs, elevs, sl_adjs = get_good_bergs(poss_bergs, onedem)
+
+    # delete generator object so no issues between DEMs
+    # delete arrays in memory (should be done automatically by garbage collector)
+    try:
+        del poss_bergs        
+    except NameError:
+        pass
+
+    temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':bergs}, geometry='berg_poly')
     
-    print(len(poss_bergs))
+    # look at DEM-wide sea level adjustments
+    # filter out "icebergs" that have sea level adjustments outside the median +/- two times the median absolute deviation
+    # sl_adj_med = np.nanmedian(temp_berg_df.sl_adjust)
+    # sl_adj_mad = stats.median_abs_deviation(temp_berg_df.sl_adjust, nan_policy='omit')
+
+    # print(sl_adj_med)
+    # print(sl_adj_mad)
+    # temp_berg_df = temp_berg_df[(temp_berg_df['sl_adjust'] > sl_adj_med - 2*sl_adj_mad) & 
+    #                             (temp_berg_df['sl_adjust'] < sl_adj_med + 2*sl_adj_mad)]
+    # print(len(temp_berg_df))
+    # Description of above filter: For a given DEM, an individual iceberg's sea level adjustment 
+    # (***more on that later***) must fall within the median +/- 2 mean absolute deviations of 
+    # the sea level adjustments across that entire DEM. Otherwise the candidate iceberg is excluded 
+    # because it is likely subject to DEM generation errors or not correctly adjusted due to a 
+    # lack of nearby open water pixels in the DEM.
+    
+    # add values that are same for all icebergs in DEM
+    names = ['fjord', 'date', 'tidal_ht_offset', 'tidal_ht_min', 'tidal_ht_max']
+    col_val = [fjord, onedem['dtime'].values, onedem['tidal_corr'].item(), onedem['min_tidal_ht'].item(), onedem['max_tidal_ht'].item()]
+    
+    for name,val in (zip(names,col_val)):
+        temp_berg_df[name] = val
+
+    print("Generated geodataframe of icebergs for this image")
+
+    return temp_berg_df
+
+
+def get_good_bergs(poss_bergs, onedem):
+    """
+    Test each potential iceberg for validity, and if valid compute the sea level adjustment and
+    get elevation pixel values for putting into the geodataframe.
+
+    Parameter
+    ---------
+    poss_bergs : iterator of potential iceberg geometries
+    """
 
     bergs = []
     elevs = []
     sl_adjs = []
 
+    fjord = onedem.attrs['fjord']
+    max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
+    res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
+
     # 10 pixel buffer
     buffer = 10 * res
 
-    for berg in poss_bergs: # note: features.shapes returns a generator
+    for berg in poss_bergs[10:]: # note: features.shapes returns a generator
         # make a valid shapely Polygon of the berg vertices
+        print(berg)
         origberg = Polygon(berg)
 
-        if origberg.is_valid == False:
-            # print("invalid berg geometry")
+        if origberg.is_valid == False or origberg.is_empty == True:
+            print("invalid or empty berg geometry")
             continue
 
         # create a negatively buffered berg outline to exclude border/water pixels
         berg = origberg.buffer(-buffer)
-        if berg.is_valid == False:
-            # print("invalid buffered inner-berg geometry")
+        if berg.is_valid == False or berg.is_empty == True:
+            print("invalid buffered inner-berg geometry")
             continue
 
         # get the largest polygon from a multipolygon (if one was created during buffering)
@@ -117,15 +232,25 @@ def gdf_of_bergs(onedem):
                 area.append(sb.area)
             idx = np.where(area == np.nanmax(area))[0]
             berg = Polygon(subbergs[idx[0]])
+            print('tried to trim down a multipolygon')
         
+        if berg.is_valid == False:
+            print("invalid buffered multipology extraction")
+            continue
+
         # remove holes
         if berg.interiors:
             berg = Polygon(list(berg.exterior.coords))
+            print('removed some holes')
+        
+        if berg.is_valid == False:
+            print("invalid buffered interiors geometry")
+            continue
 
         # get the polygon complexity and skip if it's above the threshold
         complexity = vector_ops.poly_complexity(berg)
         if complexity >= 0.07:
-            # print('border too complex. Removing...')
+            print('border too complex. Removing...')
             continue
 
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
@@ -136,11 +261,15 @@ def gdf_of_bergs(onedem):
                                         y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
         
         
-#         print(bound_box)
-#         print(berg_dem)
-#         print(np.shape(berg_dem))
+        # print(bound_box)
+        # print(berg_dem)
+        # print(np.shape(berg_dem))
         # extract the iceberg elevation values
         # Note: rioxarray does not carry crs info from the dataset to individual variables
+        print(berg.is_valid)
+        # print(rasterio.is_valid_geom(berg))
+        # print(berg)
+        print(len(bergs))
         vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
 
         # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
@@ -178,48 +307,9 @@ def gdf_of_bergs(onedem):
         bergs.append(berg)
         elevs.append(vals)
         sl_adjs.append(sl_adj)
-
-    # delete generator object so no issues between DEMs
-    # delete arrays in memory (should be done automatically by garbage collector)
-    try:
-        del poss_bergs
-        del elev_copy
-        del seglabeled_arr
-        del labeled_arr
-        
-    except NameError:
-        pass
     
     print(len(bergs))
 
-    temp_berg_df = gpd.GeoDataFrame({"DEMarray":elevs, 'sl_adjust':sl_adjs, 'berg_poly':bergs}, geometry='berg_poly')
-    
-    # look at DEM-wide sea level adjustments
-    # filter out "icebergs" that have sea level adjustments outside the median +/- two times the median absolute deviation
-    # sl_adj_med = np.nanmedian(temp_berg_df.sl_adjust)
-    # sl_adj_mad = stats.median_abs_deviation(temp_berg_df.sl_adjust, nan_policy='omit')
-
-    # print(sl_adj_med)
-    # print(sl_adj_mad)
-    # temp_berg_df = temp_berg_df[(temp_berg_df['sl_adjust'] > sl_adj_med - 2*sl_adj_mad) & 
-    #                             (temp_berg_df['sl_adjust'] < sl_adj_med + 2*sl_adj_mad)]
-    # print(len(temp_berg_df))
-    # Description of above filter: For a given DEM, an individual iceberg's sea level adjustment 
-    # (***more on that later***) must fall within the median +/- 2 mean absolute deviations of 
-    # the sea level adjustments across that entire DEM. Otherwise the candidate iceberg is excluded 
-    # because it is likely subject to DEM generation errors or not correctly adjusted due to a 
-    # lack of nearby open water pixels in the DEM.
-    
-    # add values that are same for all icebergs in DEM
-    names = ['fjord', 'date', 'tidal_ht_offset', 'tidal_ht_min', 'tidal_ht_max']
-    col_val = [fjord, onedem['dtime'].values, onedem['tidal_corr'].item(), onedem['min_tidal_ht'].item(), onedem['max_tidal_ht'].item()]
-    
-    for name,val in (zip(names,col_val)):
-        temp_berg_df[name] = val
-
-    print("Generated geodataframe of icebergs for this image")
-
-    return temp_berg_df
-
+    return bergs, elevs, sl_adjs
 
     
