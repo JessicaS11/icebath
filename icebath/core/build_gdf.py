@@ -1,8 +1,10 @@
 import datetime as dt
+import dask
 import dask.array as da
 import numpy as np
 import os
 import geopandas as gpd
+import pandas as pd
 import rasterio
 import rioxarray
 import scipy.stats as stats
@@ -35,7 +37,7 @@ def xarray_to_gdf(xr):
 
 # Code Improvement: take the actual steps of computations out of this function and just combine the steps here
 # (e.g. functionize the array manipulations, calling either a dask or numpy version)
-def gdf_of_bergs(onedem, dask=True):
+def gdf_of_bergs(onedem, usedask=True):
     """
     Takes an xarray dataarray for one time period and returns the needed geodataframe of icebergs
     """
@@ -65,7 +67,7 @@ def gdf_of_bergs(onedem, dask=True):
 
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
 
-    if dask==True:
+    if usedask==True:
         # Daskify the iceberg segmentation process. Note that dask-image has some functionality to operate
         # directly on dask arrays (e.g. dask_image.ndfilters.sobel), which would need to be put into utils.raster.py
         # https://dask-image.readthedocs.io/en/latest/dask_image.ndfilters.html
@@ -78,6 +80,9 @@ def gdf_of_bergs(onedem, dask=True):
             return raster_ops.border_filtering(tiles, elevs, flipax=[])
 
         elev_copy = onedem.elevation.data # should return a dask array
+        for ax in flipax:
+            elev_copy = da.flip(elev_copy, axis=ax)
+        print(type(elev_copy))
         elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
         seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, trim=False) # including depth=10 here will ADD another overlap
         print("Got labeled raster of potential icebergs for an image")
@@ -89,31 +94,63 @@ def gdf_of_bergs(onedem, dask=True):
         
         print("about to get the list of possible bergs")
         
-        poss_bergs = []
-        
+        # I think that by using concatenate=True, it might not actually be using multiple dask works for the computation
+        # however, the below dask approach bring in geospatial issues
+        poss_bergs_list = []
         def get_bergs(labeled_blocks):
-            block_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_blocks.astype('int32'), transform=trans))[:-1]
-            poss_bergs.append(block_bergs) 
+            block_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
+                                labeled_blocks.astype('int32'), transform=trans))[:-1]
+            poss_bergs_list.append(block_bergs)
         
-        # 1. figure out how to get a non-array output from a blockwise applied function
-        # 2. figure out how to merge the geometries in a geodataframe (or elsewise) so that any touching pieces become one geometry
+        da.blockwise(get_bergs, '', labeled_arr, 'ij', 
+                        meta=pd.DataFrame({'c':[]}), concatenate=True).compute()
+        # print(poss_bergs_list[0])
+        # print(type(poss_bergs_list))
+        poss_bergs_gdf = gpd.GeoDataFrame({'geometry':[Polygon(poly) for poly in poss_bergs_list[0]]})
         
+        '''
+        This approach, as recommended in response to my SO post, worked great, excepting the geospatial part
+        Specifically, because the transform is for the entire xarray extent, when applied to each chunk by dask
+        it results in incorrect polygon coordinates, so the results have the right shapes but in the wrong places
+        (and wrong relative locations/orientations).
+        URL: https://stackoverflow.com/questions/66232232/produce-vector-output-from-a-dask-array/66245347?noredirect=1#comment117119583_66245347
 
-        dummy = da.blockwise(get_bergs, labeled_arr)
-        poss_bergs_gdf = gpd.GeoDataFrame(poss_bergs)
-        print(poss_bergs_gdf)
-        poss_bergs_input = poss_bergs_gdf.sjoin
+        @dask.delayed
+        def get_bergs(labeled_blocks):
+            return list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
+                                labeled_blocks.astype('int32'), transform=trans))[:-1]
 
-        # create iceberg polygons
-        # labeled_arr = labeled_arr.compute().astype('int32')
-        # labeled_arr[labeled_arr>0] = 1
-        # print(min(labeled_arr))
-        # print(max(labeled_arr))
-        
-        
-        poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
-            labeled_arr, transform=trans))[:-1]
+        poss_bergs_list = dask.compute([get_bergs(bl) for bl in labeled_arr.to_delayed().ravel()])[0]
+        print(poss_bergs_list)
 
+        # unnest the list of polygons returned by using dask to polygonize
+        concat_list = [item for sublist in poss_bergs_list for item in sublist if len(item)!=0]
+        print(concat_list)
+        
+        poss_bergs_gdf = gpd.GeoDataFrame({'geometry':[Polygon(poly) for poly in concat_list]})
+        
+        '''
+        # convert to a geodataframe, combine geometries (in case any bergs were on chunk borders), and generate new polygon list
+        # print(poss_bergs_gdf)
+        poss_berg_combined = gpd.overlay(poss_bergs_gdf, poss_bergs_gdf, how='union')
+        # print(poss_berg_combined)
+        print(poss_berg_combined.geometry.plot())
+        poss_bergs = [berg for berg in poss_berg_combined.geometry]
+        # print(poss_bergs)
+        print(len(poss_bergs))
+
+        try:
+            del elev_copy
+            del elev_overlap
+            del seglabeled_overlap
+            del labeled_overlap
+            del labeled_arr
+            del poss_bergs_list
+            # del concat_list
+            del poss_berg_combined
+        except NameError:
+            pass
+        
     else:
         # create copy of elevation values so original dataset values are not impacted by image manipulations
         # and positive/negative coordinate systems can be ignored (note flipax=[] below)
@@ -142,8 +179,8 @@ def gdf_of_bergs(onedem, dask=True):
         except NameError:
             pass
    
-    print(type(poss_bergs))
-    print(len(poss_bergs))
+    # print(type(poss_bergs))
+    # print(len(poss_bergs))
 
     # Note: features.shapes returns a generator. However, if we try to iterate through it with a for loop, the StopIteration exception
     # is not passed up into the for loop and execution hangs when it hits the end of the for loop without completing the function
@@ -208,9 +245,9 @@ def get_good_bergs(poss_bergs, onedem):
     # 10 pixel buffer
     buffer = 10 * res
 
-    for berg in poss_bergs[10:]: # note: features.shapes returns a generator
+    for berg in poss_bergs:
         # make a valid shapely Polygon of the berg vertices
-        print(berg)
+        # print(berg)
         origberg = Polygon(berg)
 
         if origberg.is_valid == False or origberg.is_empty == True:
@@ -266,14 +303,14 @@ def get_good_bergs(poss_bergs, onedem):
         # print(np.shape(berg_dem))
         # extract the iceberg elevation values
         # Note: rioxarray does not carry crs info from the dataset to individual variables
-        print(berg.is_valid)
-        # print(rasterio.is_valid_geom(berg))
         # print(berg)
-        print(len(bergs))
+        # print(len(bergs))
         vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
+        # print(vals)
 
         # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
         vals = vals[~np.isnan(vals)]
+        # print(vals)
 
         # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
         if np.nanmedian(vals) > max_freebd:  # units in meters, matching those of the DEM elevation
