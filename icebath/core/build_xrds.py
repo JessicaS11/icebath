@@ -56,7 +56,7 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
             continue
 
         try:
-            darrays[i] = read_DEM(path+f)
+            darrays[i] = read_DEM(path+f, fjord)
             # darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
         except RasterioIOError:
             print("RasterioIOError on your input file")
@@ -103,9 +103,9 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
     return ds
 
 
-def read_DEM(fn=None):
+def read_DEM(fn=None, fjord=None):
     """
-    Reads in the DEM (only accepts GeoTiffs right now) into an XArray Dataarray with the desired format
+    Reads in the DEM (only accepts GeoTiffs right now) into an XArray Dataarray with the desired format.
     """
     
     # Rasterio automatically checks that the file exists
@@ -139,6 +139,15 @@ def read_DEM(fn=None):
     except KeyError:
         pass
 
+    if fjord != None:
+        # USE RIOXARRAY - specifically, slicexy() which can be fed the bounding box
+        # darr = darr.rio.slice_xy(fjord_props.get_fjord_bounds(fjord))
+        bbox = fjord_props.get_fjord_bounds(fjord)
+        if pd.Series(darr.y).is_monotonic_increasing:
+            darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[1], bbox[3]))
+        else:
+            darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[3], bbox[1]))
+    
     return darr
 
 
