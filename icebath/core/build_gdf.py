@@ -89,8 +89,8 @@ def gdf_of_bergs(onedem, usedask=True):
         labeled_overlap = da.map_overlap(filter_wrapper, seglabeled_overlap, elev_overlap, trim=False, dtype='int32')
         labeled_arr = da.overlap.trim_overlap(labeled_overlap, depth=10)
         
-        print(da.min(labeled_arr).compute())
-        print(da.max(labeled_arr).compute())
+        # print(da.min(labeled_arr).compute())
+        # print(da.max(labeled_arr).compute())
         
         print("about to get the list of possible bergs")
         
@@ -114,9 +114,16 @@ def gdf_of_bergs(onedem, usedask=True):
         it results in incorrect polygon coordinates, so the results have the right shapes but in the wrong places
         (and wrong relative locations/orientations).
         URL: https://stackoverflow.com/questions/66232232/produce-vector-output-from-a-dask-array/66245347?noredirect=1#comment117119583_66245347
+        rioxarray has a transform(recalc=False) method. I wonder if I could turn the dask array into a rioxarray,
+        and then it would give the right transform for each chunk?
+
+        # @dask.delayed
+        # def get_bergs(labeled_blocks):
+        #     return list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
+        #                         labeled_blocks.astype('int32'), transform=trans))[:-1]
 
         @dask.delayed
-        def get_bergs(labeled_blocks):
+        def get_bergs(labeled_blocks, block_id=None):
             return list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
                                 labeled_blocks.astype('int32'), transform=trans))[:-1]
 
