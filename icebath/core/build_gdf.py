@@ -57,9 +57,13 @@ def gdf_of_bergs(onedem, usedask=True):
 
     trans=onedem.attrs['transform']
     flipax=[]
-    if trans[0] < 0:
+    # if trans[0] < 0:
+    #     flipax.append(1)
+    # if trans[4] < 0:
+    #     flipax.append(0)
+    if pd.Series(onedem.x).is_monotonic_decreasing:
         flipax.append(1)
-    if trans[4] < 0:
+    if pd.Series(onedem.y).is_monotonic_increasing:
         flipax.append(0)
     
     fjord = onedem.attrs['fjord']
@@ -79,10 +83,12 @@ def gdf_of_bergs(onedem, usedask=True):
         def filter_wrapper(tiles, elevs):
             return raster_ops.border_filtering(tiles, elevs, flipax=[])
 
+
         elev_copy = onedem.elevation.data # should return a dask array
         for ax in flipax:
             elev_copy = da.flip(elev_copy, axis=ax)
-        print(type(elev_copy))
+        # print(type(elev_copy))
+        # plt.imshow(elev_copy)
         elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
         seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, trim=False) # including depth=10 here will ADD another overlap
         print("Got labeled raster of potential icebergs for an image")
@@ -141,7 +147,7 @@ def gdf_of_bergs(onedem, usedask=True):
         # print(poss_bergs_gdf)
         poss_berg_combined = gpd.overlay(poss_bergs_gdf, poss_bergs_gdf, how='union')
         # print(poss_berg_combined)
-        print(poss_berg_combined.geometry.plot())
+        # print(poss_berg_combined.geometry.plot())
         poss_bergs = [berg for berg in poss_berg_combined.geometry]
         # print(poss_bergs)
         print(len(poss_bergs))
@@ -300,10 +306,11 @@ def get_good_bergs(poss_bergs, onedem):
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
         bound_box = origberg.bounds
-        berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
-                                        # y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo? May have been because of issues with applying transform to right-side-up image above?
-                                        y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
+        berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
         
+        # berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
+        #                                 # y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo? May have been because of issues with applying transform to right-side-up image above?
+        #                                 y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
         
         # print(bound_box)
         # print(berg_dem)
@@ -313,7 +320,6 @@ def get_good_bergs(poss_bergs, onedem):
         # print(berg)
         # print(len(bergs))
         vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
-        # print(vals)
 
         # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
         vals = vals[~np.isnan(vals)]
@@ -342,7 +348,7 @@ def get_good_bergs(poss_bergs, onedem):
         if abs(np.nanmedian(vals)-sl_adj) < 15:
             # print(np.nanmedian(vals))
             # print(sl_adj)
-            # print('median iceberg freeboard less than 15 m')
+            print('median iceberg freeboard less than 15 m')
             continue
 
         # apply the sea level adjustment to the elevation values

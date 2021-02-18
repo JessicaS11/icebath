@@ -137,19 +137,17 @@ class BergXR:
         mask = rasterio.features.geometry_mask(shpfl.geometry,
                                          out_shape = (len(self._xrds.y), len(self._xrds.x)),
                                          transform= self._xrds.attrs['transform'],
-                                         invert=False)
-        # plt.imshow(landmsk)
+                                         invert=False)        
 
-        # check for negative transform values. If true, then flip along the appropriate x/y coordinates before putting into xarray dataset
+        # check for coordinate monotony. If true, then flip along the appropriate x/y coordinates before putting into xarray dataset
         flipax=[]
-        if self._xrds.attrs['transform'][0] < 0:
+        if pd.Series(self._xrds.x).is_monotonic_decreasing:
             flipax.append(1)
-        if self._xrds.attrs['transform'][4] < 0:
+        if pd.Series(self._xrds.y).is_monotonic_increasing:
             flipax.append(0)
 
         mask = xr.DataArray(np.flip(mask, axis=flipax), coords={'y':self._xrds.y, 'x':self._xrds.x}, dims=['y','x'])
         self._xrds.coords[name] = mask
-        
         
         # clip original shapefile to XArray extent plus a half-pixel buffer
         # clipped_shpfl = gpd.clip(shpfl, box(self._xrds.x.min().item()-0.5*self._xrds.attrs['res'][0],
