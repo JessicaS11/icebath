@@ -79,3 +79,9 @@ def run_workflow(indir, fjord, outdir, metastr=None):
         del shpgdf['DEMarray']
         del shpgdf['filtered_draft']
         shpgdf.to_file(outdir+outfn, driver="GPKG")
+    
+    try:
+        del ds
+        del gdf
+    except NameError:
+        pass

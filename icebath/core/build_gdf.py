@@ -229,7 +229,8 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             #                                         xmax+0.5*onedem.attrs['res'][0], ymax+0.5*onedem.attrs['res'][1], 
             #                                         xmaxi-xmini, ymaxi-ymini)
 
-            # use rasterio and rioxarray to construct transform
+            # use rasterio Windows and rioxarray to construct transform
+            # https://rasterio.readthedocs.io/en/latest/topics/windowed-rw.html#window-transforms
             chwindow = rasterio.windows.Window(xmini, ymini, xmaxi-xmini, ymaxi-ymini) #.from_slices[ymini, ymaxi],[xmini, xmaxi])
             trans = onedem.rio.isel_window(chwindow).rio.transform(recalc=True)
 

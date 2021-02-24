@@ -73,9 +73,15 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
     darr = xr.concat(darrays, 
                     dim=pd.Index(dtimes, name='dtime'), 
                     # coords=['x','y'], 
-                    join='outer').chunk({'dtime': 1, 'x':5000, 'y':5000}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
+                    join='outer').chunk({'dtime': 1, 'x':2000, 'y':2000}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
                     # combine_attrs='no_conflicts' # only in newest version of xarray
 
+    try:
+        for arr in darrays:
+            arr.close()
+            print('closed the arrays')
+    except:
+        pass
     del darrays
     
     # convert to dataset with elevation as a variable and add attributes
@@ -107,48 +113,64 @@ def read_DEM(fn=None, fjord=None):
     """
     Reads in the DEM (only accepts GeoTiffs right now) into an XArray Dataarray with the desired format.
     """
-    
+    # intake.open_rasterio accepts a list of input files and may effectively do what this function does!
+    # try using cropped versions of the input files. Doesn't seem to make a difference r.e. crashing
+    '''
+    cropped_fn = fn.rpartition(".tif")[0] + "_cropped.tif"
+    print(cropped_fn)
+    if os._exists(cropped_fn):
+        fn = cropped_fn
+    elif fjord != None:
+        bbox = fjord_props.get_fjord_bounds(fjord)
+        ds = rioxarray.open_rasterio(fn)
+        trimmed_ds = ds.rio.slice_xy(*bbox)
+        trimmed_ds.rio.to_raster(fn.rpartition(".tif")[0] + "_cropped.tif")
+        del ds
+        del trimmed_ds
+        fn = cropped_fn   
+    '''
+
     # Rasterio automatically checks that the file exists
     # ultimately switch to using rioxarray, but it causes issues down the pipeline so it will need to be debugged through
     # with rioxarray.open_rasterio(fn) as src:
-    with xr.open_rasterio(fn) as src:
-        darr = src
+    with xr.open_rasterio(fn) as darr:
+        # darr = src
 
-    # open_rasterio automatically brings the geotiff in as a DataArray with 'band' as a dimensional coordinate
-    # we rename it and remove the band as a coordinate, since our DEM only has one dimension
-    # squeeze removes dimensions of length 0 or 1, in this case our 'band'
-    # Then, drop('band') actually removes the 'band' dimension from the Dataset
-    darr = darr.rename('elevation').squeeze().drop('band')
-    # darr = darr.rename({'band':'dtime'})
- 
-    # if we wanted to instead convert it to a dataset
-    # attr = darr.attrs
-    # darr = darr.to_dataset(name='elevation').squeeze().drop('band')
-    # darr.attrs = attr
-    # attr=None
-    # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
-    # darr = darr.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
-
-    # mask out the nodata values, since the nodatavals attribute is wrong
-    darr = darr.where(darr != -9999.)
-
-    # the gdalwarp geoid files have this extra attribute in the geoTiff, which when brought in
-    # ultimately causes a "__module__" related error when trying to plot with hvplot
-    try:
-        del darr.attrs["units"] 
-    except KeyError:
-        pass
-
-    if fjord != None:
-        # USE RIOXARRAY - specifically, slicexy() which can be fed the bounding box
-        # darr = darr.rio.slice_xy(fjord_props.get_fjord_bounds(fjord))
-        bbox = fjord_props.get_fjord_bounds(fjord)
-        if pd.Series(darr.y).is_monotonic_increasing:
-            darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[1], bbox[3]))
-        else:
-            darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[3], bbox[1]))
+        # open_rasterio automatically brings the geotiff in as a DataArray with 'band' as a dimensional coordinate
+        # we rename it and remove the band as a coordinate, since our DEM only has one dimension
+        # squeeze removes dimensions of length 0 or 1, in this case our 'band'
+        # Then, drop('band') actually removes the 'band' dimension from the Dataset
+        darr = darr.rename('elevation').squeeze().drop('band')
+        # darr = darr.rename({'band':'dtime'})
     
-    return darr
+        # if we wanted to instead convert it to a dataset
+        # attr = darr.attrs
+        # darr = darr.to_dataset(name='elevation').squeeze().drop('band')
+        # darr.attrs = attr
+        # attr=None
+        # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
+        # darr = darr.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
+
+        # mask out the nodata values, since the nodatavals attribute is wrong
+        darr = darr.where(darr != -9999.)
+
+        # the gdalwarp geoid files have this extra attribute in the geoTiff, which when brought in
+        # ultimately causes a "__module__" related error when trying to plot with hvplot
+        try:
+            del darr.attrs["units"] 
+        except KeyError:
+            pass
+
+        if fjord != None:
+            # USE RIOXARRAY - specifically, slicexy() which can be fed the bounding box
+            # darr = darr.rio.slice_xy(fjord_props.get_fjord_bounds(fjord))
+            bbox = fjord_props.get_fjord_bounds(fjord)
+            if pd.Series(darr.y).is_monotonic_increasing:
+                darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[1], bbox[3]))
+            else:
+                darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[3], bbox[1]))
+        
+        return darr
 
 
 def get_dtime(string, startidx, endidx, fmtstr):    
