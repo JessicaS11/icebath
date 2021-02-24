@@ -133,15 +133,17 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         print("have the dask array")
         for ax in flipax:
             elev_copy = da.flip(elev_copy, axis=ax)
-        print('flipped it')
         # print(type(elev_copy))
-        # plt.imshow(elev_copy)
         elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
         seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, trim=False) # including depth=10 here will ADD another overlap
         print("Got labeled raster of potential icebergs for an image")
         labeled_overlap = da.map_overlap(filter_wrapper, seglabeled_overlap, elev_overlap, trim=False, dtype='int32')
         labeled_arr = da.overlap.trim_overlap(labeled_overlap, depth=10)
         
+        # re-flip the labeled_arr so it matches the orientation of the original elev data that's within the xarray
+        for ax in flipax:
+            labeled_arr = da.flip(labeled_arr, axis=ax)
+
         try:
             del elev_copy
             del elev_overlap
@@ -155,6 +157,9 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # print(da.max(labeled_arr).compute())
         
         print("about to get the list of possible bergs")
+        print('Please note the transform computation is very application specific (negative y coordinates) and may need generalizing')
+        print("this transform computation is particularly sensitive to axis order (y,x) because it is accessed by index number")
+
         poss_bergs_list = []
         '''
         # I think that by using concatenate=True, it might not actually be using multiple dask works for the computation
@@ -180,19 +185,9 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # it results in incorrect polygon coordinates, so the results have the right shapes but in the wrong places
         # (and wrong relative locations/orientations).
         # URL: https://stackoverflow.com/questions/66232232/produce-vector-output-from-a-dask-array/66245347?noredirect=1#comment117119583_66245347
-        # rioxarray has a transform(recalc=False) method. I wonder if I could turn the dask array into a rioxarray,
-        # and then it would give the right transform for each chunk?
-
-        # @dask.delayed
-        # def get_bergs(labeled_blocks):
-        #     return list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
-        #                         labeled_blocks.astype('int32'), transform=trans))[:-1]
 
         @dask.delayed
         def get_bergs(labeled_blocks, pointer, chunk0, chunk1):
-            print('Please note the transform is computed assuming a coordinate reference system\
-            where x(min) is west and y(min) is south; also, may need to debug non-full chunks')
-            print("this transform computation is particularly sensitive to axis order (y,x) because it is accessed by index number")
             
             def getpx(chunkid, chunksz):
                 amin = chunkid[0] * chunksz[0][0]
@@ -200,66 +195,45 @@ def get_poss_bergs_fr_raster(onedem, usedask):
                 bmin = chunkid[1] * chunksz[1][0]
                 bmax = bmin + chunksz[1][0] #[chunkid[1]]
                 return (amin, amax, bmin, bmax)
-            
-            # # inputs: west, south, east, north, width, height
-            # def getchunk(chunkid, chunksz, offset, res):
-            #     amin = chunkid[0] * chunksz[0][0] * res + offset[0]
-            #     amax = amin + chunksz[0][chunkid[0]] * res
-            #     bmin = chunkid[1] * chunksz[1][0] * res + offset[1]
-            #     bmax = bmin + chunksz[1][chunkid[1]] * res
-            #     return (amin, amax, bmin, bmax)
 
-            # print(onedem.chunks)
-            # print(type(onedem.chunks))
             # order of all inputs (and outputs) should be y, x when axis order is used
             chunksz = (onedem.chunks['y'], onedem.chunks['x'])
-            # offset = (onedem.attrs['transform'][2], onedem.attrs['transform'][5])
-            rasterio_trans = rasterio.transform.guard_transform(onedem.attrs["transform"])
-            print(rasterio_trans)
-            # offset = rasterio.transform.xy(rasterio_trans, 0,0, offset='ul')
-            # print(offset)
-            # print(block_id)
-            # ymin, ymax, xmin, xmax = getchunk((chunk0, chunk1), chunksz, offset, res)
+            # rasterio_trans = rasterio.transform.guard_transform(onedem.attrs["transform"])
+            # print(rasterio_trans)
             ymini, ymaxi, xmini, xmaxi = getpx((chunk0, chunk1), chunksz) 
 
-            print(chunk0, chunk1)
-            print(xmini)
-            print(xmaxi)
-            print(ymini)
-            print(ymaxi)
+            # print(chunk0, chunk1)
+            # print(xmini)
+            # print(xmaxi)
+            # print(ymini)
+            # print(ymaxi)
             
-            # # if rasterio_trans[5] < 0
+            # DELETE
+            # manually construct transform (does not return correct coordinates)
             # xmin, ymin = rasterio.transform.xy(rasterio_trans, ymini, xmini) 
             # xmax, ymax = rasterio.transform.xy(rasterio_trans, ymaxi, xmaxi)
-            # # else:
-            # # xmin, ymin = rasterio.transform.xy(rasterio_trans, ymini, xmini) 
-            # # xmax, ymax = rasterio.transform.xy(rasterio_trans, ymaxi, xmaxi)
 
             # print(xmin)
             # print(xmax)
             # print(ymin)
             # print(ymax)
 
-            # if ymin > ymax:
-            #     hold = ymin
-            #     ymin = ymax
-            #     ymax = hold
-            #     print(ymin)
-            #     print(ymax)       
+            # # if ymin > ymax:
+            # #     hold = ymin
+            # #     ymin = ymax
+            # #     ymax = hold
+            # #     print(ymin)
+            # #     print(ymax)       
             
-            chwindow = rasterio.windows.Window.from_slices([ymini, ymaxi],[xmini, xmaxi])
-            # chwindow = onedem.rio.Window.from_slices([ymini, ymaxi],[xmini, xmaxi]) #isel_window(ymini, xmini, xmaxi-xmini, ymaxi-ymini)
-            try:
-                print('opt1')
-                trans = onedem.window_transform(chwindow) #chwindow.window_transform()
-            except:
-                print('opt2')
-                trans = onedem.rio.isel_window(chwindow)
             # trans = rasterio.transform.from_bounds(xmin-0.5*onedem.attrs['res'][0], ymin-0.5*onedem.attrs['res'][1], 
             #                                         xmax+0.5*onedem.attrs['res'][0], ymax+0.5*onedem.attrs['res'][1], 
             #                                         xmaxi-xmini, ymaxi-ymini)
 
-            print(trans)
+            # use rasterio and rioxarray to construct transform
+            chwindow = rasterio.windows.Window(xmini, ymini, xmaxi-xmini, ymaxi-ymini) #.from_slices[ymini, ymaxi],[xmini, xmaxi])
+            trans = onedem.rio.isel_window(chwindow).rio.transform(recalc=True)
+
+            # print(trans)
             return list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
                                 labeled_blocks.astype('int32'), transform=trans))[:-1]
 
@@ -270,8 +244,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
                 poss_bergs_list.append(piece)
         
         poss_bergs_list = dask.compute(*poss_bergs_list)
-        
-        # z = dask.compute(f(item, *item.key) for item in array for second, array in enumerate(a.to_delayed()))[0]
+        # tried working with this instead of the for loops above
         # poss_bergs_list = dask.compute([get_bergs(bl, *bl.key) for bl in obj for __, obj in enumerate(labeled_arr.to_delayed())])[0]
         # print(poss_bergs_list)
 
@@ -294,7 +267,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # '''
         # convert to a geodataframe, combine geometries (in case any bergs were on chunk borders), and generate new polygon list
         print(poss_bergs_gdf)
-        print(poss_bergs_gdf.geometry.plot())
+        # print(poss_bergs_gdf.geometry.plot())
         poss_berg_combined = gpd.overlay(poss_bergs_gdf, poss_bergs_gdf, how='union')
         # print(poss_berg_combined)
         print(poss_berg_combined.geometry.plot())
