@@ -35,6 +35,8 @@ def xarray_to_gdf(xr):
     return berg_gdf
 
 
+# DevGoal: This function could have improvements to its parallelization (especially in the later steps)
+# and could certainly be refactored into a larger number of simpler functions
 def gdf_of_bergs(onedem, usedask=True):
     """
     Takes an xarray dataarray for one time period and returns the needed geodataframe of icebergs
@@ -62,7 +64,6 @@ def gdf_of_bergs(onedem, usedask=True):
     bergs, elevs, sl_adjs = filter_pot_bergs(poss_bergs, onedem)
 
     # delete generator object so no issues between DEMs
-    # delete arrays in memory (should be done automatically by garbage collector)
     try:
         del poss_bergs        
     except NameError:
@@ -122,7 +123,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # https://dask-image.readthedocs.io/en/latest/dask_image.ndfilters.html
         # However, as of yet there doesn't appear to be a way to easily implement the watershed segmentation, other than in chunks
         
-        
+        # print(onedem)
         # see else statement with non-dask version for descriptions of what each step is doing
         def seg_wrapper(tiles):
             return raster_ops.labeled_from_segmentation(tiles, [3,10], resolution=res, min_area=min_area, flipax=[])
@@ -143,6 +144,8 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # re-flip the labeled_arr so it matches the orientation of the original elev data that's within the xarray
         for ax in flipax:
             labeled_arr = da.flip(labeled_arr, axis=ax)
+        import matplotlib.pyplot as plt
+        print(plt.imshow(labeled_arr))
 
         try:
             del elev_copy
@@ -189,6 +192,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         @dask.delayed
         def get_bergs(labeled_blocks, pointer, chunk0, chunk1):
             
+            print("running the dask delayed function")
             def getpx(chunkid, chunksz):
                 amin = chunkid[0] * chunksz[0][0]
                 amax = amin + chunksz[0][0] #[chunkid[0]]
@@ -255,15 +259,15 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         
         poss_bergs_gdf = gpd.GeoDataFrame({'geometry':[Polygon(poly) for poly in concat_list]})
 
-
-        try:
-            del elev_copy
-            del elev_overlap
-            del seglabeled_overlap
-            del labeled_overlap
-            print("deleted the intermediate steps")
-        except NameError:
-            pass 
+        # DELETE (repeated)
+        # try:
+        #     del elev_copy
+        #     del elev_overlap
+        #     del seglabeled_overlap
+        #     del labeled_overlap
+        #     print("deleted the intermediate steps")
+        # except NameError:
+        #     pass 
 
         # '''
         # convert to a geodataframe, combine geometries (in case any bergs were on chunk borders), and generate new polygon list
