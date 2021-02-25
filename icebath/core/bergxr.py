@@ -178,10 +178,10 @@ class BergXR:
         # read in a netcdf as a virtual raster; will need a different rasterio.open for other file types
         # read this in as a virtual raster
         with rasterio.open('netcdf:'+newfile+':'+variable) as src:
-            print('Source CRS:' +str(src.crs))
+            # print('Source CRS:' +str(src.crs))
             with WarpedVRT(src,resampling=1,src_crs=src.crs,crs=self._xrds.attrs['crs']) as vrt:
                             # warp_mem_limit=12000,warp_extras={'NUM_THREADS':2}) as vrt:
-                print('Destination CRS:' +str(vrt.crs))
+                # print('Destination CRS:' +str(vrt.crs))
                 newdset = rioxarray.open_rasterio(vrt).chunk({'x': 1000, 'y': 1000})
                 # ds = rioxarray.open_rasterio(vrt).chunk({'x':1500,'y':1500,'band':1}).to_dataset(name='HLS_Red')
 

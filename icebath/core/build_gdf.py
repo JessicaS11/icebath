@@ -37,7 +37,7 @@ def xarray_to_gdf(xr):
 
 # DevGoal: This function could have improvements to its parallelization (especially in the later steps)
 # and could certainly be refactored into a larger number of simpler functions
-def gdf_of_bergs(onedem, usedask=True):
+def gdf_of_bergs(onedem, usedask=False):
     """
     Takes an xarray dataarray for one time period and returns the needed geodataframe of icebergs
     """
@@ -224,6 +224,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             for bl in obj:
                 piece = dask.delayed(get_bergs)(bl, *bl.key)
                 poss_bergs_list.append(piece)
+                del piece
         
         poss_bergs_list = dask.compute(*poss_bergs_list)
         # tried working with this instead of the for loops above
@@ -249,18 +250,18 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         try:
             del labeled_arr
             del poss_bergs_list
-            # del concat_list
+            del concat_list
             del poss_berg_combined
         except NameError:
             pass
         
     else:
+        print("NOT USING DASK")
         # create copy of elevation values so original dataset values are not impacted by image manipulations
         # and positive/negative coordinate systems can be ignored (note flipax=[] below)
         # something wonky is happening and when I ran this code on Pangeo I needed to NOT flip the elevation values here and then switch the bounding box y value order
         # Not entirely sure what's going on, but need to be aware of this!!
-        print("NOTE: check for proper orientation of results depending on compute environment. Pangeo results were upside down.")
-        # elev_copy = np.copy(onedem.elevation.values)
+        # print("Note: check for proper orientation of results depending on compute environment. Pangeo results were upside down.")
         elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
         # flipax=[]
         
@@ -292,7 +293,7 @@ def filter_pot_bergs(poss_bergs, onedem):
 
     Parameter
     ---------
-    poss_bergs : iterator of potential iceberg geometries
+    poss_bergs : list of potential iceberg geometries
     """
 
     bergs = []
@@ -312,13 +313,13 @@ def filter_pot_bergs(poss_bergs, onedem):
         origberg = Polygon(berg)
 
         if origberg.is_valid == False or origberg.is_empty == True:
-            print("invalid or empty berg geometry")
+            # print("invalid or empty berg geometry")
             continue
 
         # create a negatively buffered berg outline to exclude border/water pixels
         berg = origberg.buffer(-buffer)
         if berg.is_valid == False or berg.is_empty == True:
-            print("invalid buffered inner-berg geometry")
+            # print("invalid buffered inner-berg geometry")
             continue
 
         # get the largest polygon from a multipolygon (if one was created during buffering)
@@ -330,25 +331,25 @@ def filter_pot_bergs(poss_bergs, onedem):
                 area.append(sb.area)
             idx = np.where(area == np.nanmax(area))[0]
             berg = Polygon(subbergs[idx[0]])
-            print('tried to trim down a multipolygon')
+            # print('tried to trim down a multipolygon')
         
         if berg.is_valid == False:
-            print("invalid buffered multipology extraction")
+            # print("invalid buffered multipology extraction")
             continue
 
         # remove holes
         if berg.interiors:
             berg = Polygon(list(berg.exterior.coords))
-            print('removed some holes')
+            # print('removed some holes')
         
         if berg.is_valid == False:
-            print("invalid buffered interiors geometry")
+            # print("invalid buffered interiors geometry")
             continue
 
         # get the polygon complexity and skip if it's above the threshold
         complexity = vector_ops.poly_complexity(berg)
         if complexity >= 0.07:
-            print('border too complex. Removing...')
+            # print('border too complex. Removing...')
             continue
 
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
@@ -375,7 +376,7 @@ def filter_pot_bergs(poss_bergs, onedem):
 
         # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
         if np.nanmedian(vals) > max_freebd:  # units in meters, matching those of the DEM elevation
-            print('"iceberg" too tall. Removing...')
+            # print('"iceberg" too tall. Removing...')
             continue
 
         # get the pixel values for the original berg extent and a buffered version for the sea level adjustment
@@ -396,7 +397,7 @@ def filter_pot_bergs(poss_bergs, onedem):
         if abs(np.nanmedian(vals)-sl_adj) < 15:
             # print(np.nanmedian(vals))
             # print(sl_adj)
-            print('median iceberg freeboard less than 15 m')
+            # print('median iceberg freeboard less than 15 m')
             continue
 
         # apply the sea level adjustment to the elevation values
