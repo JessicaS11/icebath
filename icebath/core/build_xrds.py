@@ -74,13 +74,12 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
     darr = xr.concat(darrays, 
                     dim=pd.Index(dtimes, name='dtime'), 
                     # coords=['x','y'], 
-                    join='outer').chunk({'dtime': 1, 'x':1000, 'y':1000}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
+                    join='outer').chunk({'dtime': 1, 'x':1024, 'y':1024}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
                     # combine_attrs='no_conflicts' # only in newest version of xarray
 
     try:
         for arr in darrays:
             arr.close()
-            print('closed the arrays')
     except:
         pass
     del darrays
@@ -134,11 +133,11 @@ def read_DEM(fn=None, fjord=None):
     # try bringing in the rasters as virtual rasters (i.e. lazily loading)
     with rasterio.open(fn) as src:
         # print('Source CRS:' +str(src.crs))
-        print(src.is_tiled)
-        print(src.block_shapes)
+        # print(src.is_tiled)
+        # print(src.block_shapes)
         with WarpedVRT(src,src_crs=src.crs,crs=src.crs) as vrt:
                         # warp_mem_limit=12000,warp_extras={'NUM_THREADS':2}) as vrt:
-            print('Destination CRS:' +str(vrt.crs))
+            # print('Destination CRS:' +str(vrt.crs))
             darr = xr.open_rasterio(vrt)
             # ds = rioxarray.open_rasterio(vrt).chunk({'x':1500,'y':1500,'band':1}).to_dataset(name='HLS_Red')
 

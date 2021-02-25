@@ -116,7 +116,6 @@ def get_poss_bergs_fr_raster(onedem, usedask):
     min_area = fjord_props.get_min_berg_area(fjord)
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y  
 
-    print("about to start the real work")
     if usedask==True:
         # Daskify the iceberg segmentation process. Note that dask-image has some functionality to operate
         # directly on dask arrays (e.g. dask_image.ndfilters.sobel), which would need to be put into utils.raster.py
@@ -131,10 +130,10 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             return raster_ops.border_filtering(tiles, elevs, flipax=[])
 
         elev_copy = onedem.elevation.data # should return a dask array
-        print("have the dask array")
         for ax in flipax:
             elev_copy = da.flip(elev_copy, axis=ax)
         # print(type(elev_copy))
+
         elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
         seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, trim=False) # including depth=10 here will ADD another overlap
         print("Got labeled raster of potential icebergs for an image")
@@ -165,8 +164,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
 
         poss_bergs_list = []
         '''
-        # I think that by using concatenate=True, it might not actually be using multiple dask works for the computation
-        # however, the below dask approach bring in geospatial issues
+        # I think that by using concatenate=True, it might not actually be using dask for the computation
         
         def get_bergs(labeled_blocks):
             # Note: features.shapes returns a generator. However, if we try to iterate through it with a for loop, the StopIteration exception
@@ -182,11 +180,11 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         
         poss_bergs_gdf = gpd.GeoDataFrame({'geometry':[Polygon(poly) for poly in poss_bergs_list[0]]})
         
+        # another approach could be to try and coerce the output from map_blocks into an array, but I suspect you'd still have the geospatial issue
+        # https://github.com/dask/dask/issues/3590#issuecomment-464609620
+
         '''
-        # This approach, as recommended in response to my SO post, worked great, excepting the geospatial part
-        # Specifically, because the transform is for the entire xarray extent, when applied to each chunk by dask
-        # it results in incorrect polygon coordinates, so the results have the right shapes but in the wrong places
-        # (and wrong relative locations/orientations).
+
         # URL: https://stackoverflow.com/questions/66232232/produce-vector-output-from-a-dask-array/66245347?noredirect=1#comment117119583_66245347
 
         @dask.delayed
@@ -195,9 +193,9 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             print("running the dask delayed function")
             def getpx(chunkid, chunksz):
                 amin = chunkid[0] * chunksz[0][0]
-                amax = amin + chunksz[0][0] #[chunkid[0]]
+                amax = amin + chunksz[0][0]
                 bmin = chunkid[1] * chunksz[1][0]
-                bmax = bmin + chunksz[1][0] #[chunkid[1]]
+                bmax = bmin + chunksz[1][0]
                 return (amin, amax, bmin, bmax)
 
             # order of all inputs (and outputs) should be y, x when axis order is used
@@ -211,34 +209,13 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             # print(xmaxi)
             # print(ymini)
             # print(ymaxi)
-            
-            # DELETE
-            # manually construct transform (does not return correct coordinates)
-            # xmin, ymin = rasterio.transform.xy(rasterio_trans, ymini, xmini) 
-            # xmax, ymax = rasterio.transform.xy(rasterio_trans, ymaxi, xmaxi)
-
-            # print(xmin)
-            # print(xmax)
-            # print(ymin)
-            # print(ymax)
-
-            # # if ymin > ymax:
-            # #     hold = ymin
-            # #     ymin = ymax
-            # #     ymax = hold
-            # #     print(ymin)
-            # #     print(ymax)       
-            
-            # trans = rasterio.transform.from_bounds(xmin-0.5*onedem.attrs['res'][0], ymin-0.5*onedem.attrs['res'][1], 
-            #                                         xmax+0.5*onedem.attrs['res'][0], ymax+0.5*onedem.attrs['res'][1], 
-            #                                         xmaxi-xmini, ymaxi-ymini)
 
             # use rasterio Windows and rioxarray to construct transform
             # https://rasterio.readthedocs.io/en/latest/topics/windowed-rw.html#window-transforms
-            chwindow = rasterio.windows.Window(xmini, ymini, xmaxi-xmini, ymaxi-ymini) #.from_slices[ymini, ymaxi],[xmini, xmaxi])
+            chwindow = rasterio.windows.Window(xmini, ymini, xmaxi-xmini, ymaxi-ymini)
             trans = onedem.rio.isel_window(chwindow).rio.transform(recalc=True)
-
             # print(trans)
+
             return list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
                                 labeled_blocks.astype('int32'), transform=trans))[:-1]
 
@@ -259,17 +236,6 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         
         poss_bergs_gdf = gpd.GeoDataFrame({'geometry':[Polygon(poly) for poly in concat_list]})
 
-        # DELETE (repeated)
-        # try:
-        #     del elev_copy
-        #     del elev_overlap
-        #     del seglabeled_overlap
-        #     del labeled_overlap
-        #     print("deleted the intermediate steps")
-        # except NameError:
-        #     pass 
-
-        # '''
         # convert to a geodataframe, combine geometries (in case any bergs were on chunk borders), and generate new polygon list
         print(poss_bergs_gdf)
         # print(poss_bergs_gdf.geometry.plot())
