@@ -8,6 +8,7 @@ import numpy as np
 # import fnmatch
 import pyproj
 import rasterio.features
+from rasterio.vrt import WarpedVRT
 import rioxarray
 from shapely.geometry import box
 from shapely.geometry import Polygon as shpPolygon
@@ -137,19 +138,17 @@ class BergXR:
         mask = rasterio.features.geometry_mask(shpfl.geometry,
                                          out_shape = (len(self._xrds.y), len(self._xrds.x)),
                                          transform= self._xrds.attrs['transform'],
-                                         invert=False)
-        # plt.imshow(landmsk)
+                                         invert=False)        
 
-        # check for negative transform values. If true, then flip along the appropriate x/y coordinates before putting into xarray dataset
+        # check for coordinate monotony. If true, then flip along the appropriate x/y coordinates before putting into xarray dataset
         flipax=[]
-        if self._xrds.attrs['transform'][0] < 0:
+        if pd.Series(self._xrds.x).is_monotonic_decreasing:
             flipax.append(1)
-        if self._xrds.attrs['transform'][4] < 0:
+        if pd.Series(self._xrds.y).is_monotonic_increasing:
             flipax.append(0)
 
         mask = xr.DataArray(np.flip(mask, axis=flipax), coords={'y':self._xrds.y, 'x':self._xrds.x}, dims=['y','x'])
         self._xrds.coords[name] = mask
-        
         
         # clip original shapefile to XArray extent plus a half-pixel buffer
         # clipped_shpfl = gpd.clip(shpfl, box(self._xrds.x.min().item()-0.5*self._xrds.attrs['res'][0],
@@ -176,20 +175,35 @@ class BergXR:
         assert newfile != None, "You must provide an input file of the dataset to add."
         assert variable != None, "You must specify which variable you'd like to add"
         
+        # read in a netcdf as a virtual raster; will need a different rasterio.open for other file types
+        # read this in as a virtual raster
+        with rasterio.open('netcdf:'+newfile+':'+variable) as src:
+            # print('Source CRS:' +str(src.crs))
+            with WarpedVRT(src,resampling=1,src_crs=src.crs,crs=self._xrds.attrs['crs']) as vrt:
+                            # warp_mem_limit=12000,warp_extras={'NUM_THREADS':2}) as vrt:
+                # print('Destination CRS:' +str(vrt.crs))
+                newdset = rioxarray.open_rasterio(vrt).chunk({'x': 1000, 'y': 1000})
+                # ds = rioxarray.open_rasterio(vrt).chunk({'x':1500,'y':1500,'band':1}).to_dataset(name='HLS_Red')
+
+
         # in an ideal world, we'd read this in chunked with dask. however, this means (in the case of Pangeo) that the file
         # needs to be in cloud storage, since the cluster can't access your home directory
         # https://pangeo.io/cloud.html#cloud-object-storage
-        with rioxarray.open_rasterio(newfile) as newdset: #, chunks={'x': 500, 'y': 500}) as newdset:
-            try: newdset=newdset.squeeze().drop('band')
-            except ValueError: pass
-#         newdset = xr.open_dataset(newfile, chunks={'x': 500, 'y': 500})
-        # Improvement: actually check CRS matching
-        # apply the existing chunking to the new dataset
-            newdset = newdset.rio.reproject(dst_crs=self._xrds.attrs['crs']).chunk({'x': 1000, 'y': 1000})
-            newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
+        # with rioxarray.open_rasterio(newfile) as newdset: #, chunks={'x': 500, 'y': 500}) as newdset:
+                try: newdset=newdset.squeeze().drop('band')
+                except ValueError: pass
+    #         newdset = xr.open_dataset(newfile, chunks={'x': 500, 'y': 500})
+            # Improvement: actually check CRS matching
+            # apply the existing chunking to the new dataset
+                # newdset = newdset.rio.reproject(dst_crs=self._xrds.attrs['crs']).chunk({'x': 1000, 'y': 1000})
+                # newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
+                
+                newvar = newdset.interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
 
-            self._xrds[varname] = newvar
-            del newvar
+                self._xrds[varname] = newvar
+                del newvar
+
+
         
 
     def to_geoid(self, req_dim=['dtime','x','y'], req_vars={'elevation':['x','y','dtime','geoid']},
