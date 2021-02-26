@@ -141,6 +141,10 @@ class BergGDF:
             self._gdf.at[datarow.Index, column+'_med'] = np.nanmedian(indata)
             self._gdf.at[datarow.Index,column+'_max'] = np.nanmax(indata)
             self._gdf.at[datarow.Index,column+'_mad'] = stats.median_absolute_deviation(indata, nan_policy='omit')
+        
+        # set type for column (since default is now object)
+        for key in [column+'_med', column+'_max', column+'_mad']:
+            self._gdf[str(key)] = self._gdf[str(key)].astype('float64')
 
 
     def wat_depth_uncert(self, column=''):
@@ -168,6 +172,8 @@ class BergGDF:
             med_H_err = abs(med_H)*((freeboard_err/med_freebd)**2+(rho_conversion_err/rho_conversion)**2)**(0.5)
             err = ((med_H_err)**2+(freeboard_err)**2)**(0.5)
             self._gdf.at[datarow.Index, column+'_err'] = err
+        
+        self._gdf[column+'_err'] = self._gdf[column+'_err'].astype(float)
    
 
     # ToDo: generalize this function to be for any input geometry and raster (with matching CRS)

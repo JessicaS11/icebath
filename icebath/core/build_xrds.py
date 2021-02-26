@@ -75,7 +75,6 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
             warnings.warn("None of your DEMs will be put into XArray")
             return "nodems"
     
-    print('checkpoint')
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
     darr = xr.concat(darrays, 
                     dim=pd.Index(dtimes, name='dtime'), 
