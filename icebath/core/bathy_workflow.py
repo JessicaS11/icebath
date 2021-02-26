@@ -7,6 +7,9 @@ from icebath.core import build_gdf
 def run_workflow(indir, fjord, outdir, outfn, metastr=None):
     ds = build_xrds.xrds_from_dir(indir, fjord, metastr)
 
+    if ds is "nodems":
+        return
+    
     ds.bergxr.get_mask(req_dim=['x','y'], req_vars=None, name='land_mask', shpfile='/Users/jessica/mapping/shpfiles/Greenland/Land_region/Land_region.shp')
     ds['elevation'] = ds['elevation'].where(ds.land_mask == True)
 

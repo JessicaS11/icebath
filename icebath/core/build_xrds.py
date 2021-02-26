@@ -66,10 +66,16 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
         i = i + 1
 
     if len(darrays)==1:
-        assert np.all(darrays[0]) != 0, "Your DEM will not be put into XArray"
+        if np.all(darrays[0]) == 0:
+            warnings.warn("Your DEM will not be put into XArray")
     else:
-        assert np.all(darrays[darrays!=0]) != 0, "None of your DEMs will be put into XArray"
+        if np.all(darrays[darrays!=0]) == 0:
+            print('it got to the right warning')
+            warnings.simplefilter("always")
+            warnings.warn("None of your DEMs will be put into XArray")
+            return "nodems"
     
+    print('checkpoint')
     # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
     darr = xr.concat(darrays, 
                     dim=pd.Index(dtimes, name='dtime'), 
@@ -152,7 +158,7 @@ def read_DEM(fn=None, fjord=None):
             # we rename it and remove the band as a coordinate, since our DEM only has one dimension
             # squeeze removes dimensions of length 0 or 1, in this case our 'band'
             # Then, drop('band') actually removes the 'band' dimension from the Dataset
-            darr = darr.rename('elevation').squeeze().drop('band')
+            darr = darr.rename('elevation').squeeze().drop_vars('band')
             # darr = darr.rename({'band':'dtime'})
         
             # if we wanted to instead convert it to a dataset
