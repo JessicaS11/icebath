@@ -143,8 +143,8 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # re-flip the labeled_arr so it matches the orientation of the original elev data that's within the xarray
         for ax in flipax:
             labeled_arr = da.flip(labeled_arr, axis=ax)
-        import matplotlib.pyplot as plt
-        print(plt.imshow(labeled_arr))
+        # import matplotlib.pyplot as plt
+        # print(plt.imshow(labeled_arr))
 
         try:
             del elev_copy
@@ -242,7 +242,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # print(poss_bergs_gdf.geometry.plot())
         poss_berg_combined = gpd.overlay(poss_bergs_gdf, poss_bergs_gdf, how='union')
         # print(poss_berg_combined)
-        print(poss_berg_combined.geometry.plot())
+        # print(poss_berg_combined.geometry.plot())
         poss_bergs = [berg for berg in poss_berg_combined.geometry]
         # print(poss_bergs)
         print(len(poss_bergs))

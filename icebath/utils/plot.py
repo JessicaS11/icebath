@@ -209,9 +209,19 @@ def meas_vs_infer_fig(berg_data, save=False):
     
     
     # a list of individual plots (in the dicts above) that go into each subplot (column) of the figure
-    cols = {'Direct Measurements': [bmach_med_inf, bmach_max_inf, ibcao_med_inf, ibcao_max_inf, med_inf_fit, max_inf_fit],
-            'Indirect Measurements':[bmach_indir_med_inf, bmach_indir_max_inf, ibcao_indir_med_inf, ibcao_indir_max_inf, med_indir_fit, max_indir_fit]
+    if len(low_err_data)==0 and len(high_err_data)==0:
+        print("no valid data in your geodataframe")
+        exit()
+    elif len(low_err_data)==0:
+        cols = {'Indirect Measurements':[bmach_indir_med_inf, bmach_indir_max_inf, ibcao_indir_med_inf, ibcao_indir_max_inf, med_indir_fit, max_indir_fit]
            }
+    elif len(high_err_data)==0: 
+        cols = {'Direct Measurements': [bmach_med_inf, bmach_max_inf, ibcao_med_inf, ibcao_max_inf, med_inf_fit, max_inf_fit],
+            }
+    else:  
+        cols = {'Direct Measurements': [bmach_med_inf, bmach_max_inf, ibcao_med_inf, ibcao_max_inf, med_inf_fit, max_inf_fit],
+                'Indirect Measurements':[bmach_indir_med_inf, bmach_indir_max_inf, ibcao_indir_med_inf, ibcao_indir_max_inf, med_indir_fit, max_indir_fit]
+            }
 
     plot_title = 'Comparison of Gridded Products and Iceberg Freeboard-inferred Bathymetry Values'
 
@@ -230,7 +240,7 @@ def meas_vs_infer_fig(berg_data, save=False):
             axes[i,j].set_title(plotcol, fontsize=11)
             # axes[i,j].text(0.02, 0.95,'c', weight='bold', transform=axes[i,j].transAxes)
          
-            plotmin = 50
+            plotmin = 25 # 50 for JI
             plotmax = 700
             axes[i,j].plot([plotmin,plotmax],[plotmin, plotmax], color='k', linestyle=':')
 

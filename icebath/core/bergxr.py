@@ -190,7 +190,7 @@ class BergXR:
         # needs to be in cloud storage, since the cluster can't access your home directory
         # https://pangeo.io/cloud.html#cloud-object-storage
         # with rioxarray.open_rasterio(newfile) as newdset: #, chunks={'x': 500, 'y': 500}) as newdset:
-                try: newdset=newdset.squeeze().drop('band')
+                try: newdset=newdset.squeeze().drop_vars('band')
                 except ValueError: pass
     #         newdset = xr.open_dataset(newfile, chunks={'x': 500, 'y': 500})
             # Improvement: actually check CRS matching

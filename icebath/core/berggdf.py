@@ -204,12 +204,15 @@ class BergGDF:
             # subset_raster = raster.rio.clip_box(*datarow[geom_name].bounds)
             # subset_raster = raster.rio.clip([datarow[geom_name].bounds], crs=crs)
             bounds = datarow[geom_name].bounds
-            subset_raster = raster.sel(x=slice(bounds[0], bounds[2]), y=slice(bounds[1],bounds[3]))
+            subset_raster = raster.rio.slice_xy(*bounds)
+            # below line caused "no data" issues due to negative y coords
+            # subset_raster = raster.sel(x=slice(bounds[0], bounds[2]), y=slice(bounds[1],bounds[3]))
             vals = subset_raster.rio.clip([datarow[geom_name]], crs=crs).values.flatten()
             # rioxarray introduces a fill value, regardless of the input nodata setup
             vals[vals==-9999] = np.nan
         except NoDataInBounds:
             print('no data')
+            print(datarow[geom_name].bounds)
             vals = np.nan
         return vals
       

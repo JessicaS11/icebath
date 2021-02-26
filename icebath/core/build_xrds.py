@@ -65,53 +65,53 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
 
         i = i + 1
 
-    if len(darrays)==1:
-        if np.all(darrays[0]) == 0:
-            warnings.warn("Your DEM will not be put into XArray")
-    else:
-        if np.all(darrays[darrays!=0]) == 0:
-            print('it got to the right warning')
-            warnings.simplefilter("always")
-            warnings.warn("None of your DEMs will be put into XArray")
-            return "nodems"
-    
-    # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
-    darr = xr.concat(darrays, 
-                    dim=pd.Index(dtimes, name='dtime'), 
-                    # coords=['x','y'], 
-                    join='outer').chunk({'dtime': 1, 'x':1024, 'y':1024}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
-                    # combine_attrs='no_conflicts' # only in newest version of xarray
+    if len(darrays)==1 and np.all(darrays[0]) == 0:
+        warnings.warn("Your DEM will not be put into XArray")
+        return "nodems"
 
-    try:
-        for arr in darrays:
-            arr.close()
-    except:
-        pass
-    del darrays
-    
-    # convert to dataset with elevation as a variable and add attributes
-    attr = darr.attrs
-    ds = darr.to_dataset()
-    ds.attrs = attr
-    ds.attrs['fjord'] = fjord
-    attr=None
-    # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
-    # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
-    
-    # using rioxarray means the transform is read in/created as part of the geospatial info, so it's unnecessary to manually create a transform
-    # create affine transform for concatted dataset
-    print('Please note the transform is computed assuming a coordinate reference system\
- where x(min) is west and y(min) is south')
-    # inputs: west, south, east, north, width, height
-    transform = rasterio.transform.from_bounds(ds.x.min().item()-0.5*ds.attrs['res'][0], ds.y.min().item()-0.5*ds.attrs['res'][1], 
-                                             ds.x.max().item()+0.5*ds.attrs['res'][0], ds.y.max().item()+0.5*ds.attrs['res'][1], 
-                                             len(ds.x), len(ds.y))
-    ds.attrs['transform'] = transform
-    # set the transform and crs as attributes since that's how they're accessed later in the pipeline
-    # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
-    # ds.attrs['crs'] = ds.spatial_ref.crs_wkt
-    
-    return ds
+    elif np.all(darrays) == 0:
+        warnings.simplefilter("always")
+        warnings.warn("None of your DEMs will be put into XArray")
+        return "nodems"
+
+    else:
+        # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
+        darr = xr.concat(darrays, 
+                        dim=pd.Index(dtimes, name='dtime'), 
+                        # coords=['x','y'], 
+                        join='outer').chunk({'dtime': 1, 'x':1024, 'y':1024}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
+                        # combine_attrs='no_conflicts' # only in newest version of xarray
+
+        try:
+            for arr in darrays:
+                arr.close()
+        except:
+            pass
+        del darrays
+        
+        # convert to dataset with elevation as a variable and add attributes
+        attr = darr.attrs
+        ds = darr.to_dataset()
+        ds.attrs = attr
+        ds.attrs['fjord'] = fjord
+        attr=None
+        # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
+        # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
+        
+        # using rioxarray means the transform is read in/created as part of the geospatial info, so it's unnecessary to manually create a transform
+        # create affine transform for concatted dataset
+        print('Please note the transform is computed assuming a coordinate reference system\
+    where x(min) is west and y(min) is south')
+        # inputs: west, south, east, north, width, height
+        transform = rasterio.transform.from_bounds(ds.x.min().item()-0.5*ds.attrs['res'][0], ds.y.min().item()-0.5*ds.attrs['res'][1], 
+                                                ds.x.max().item()+0.5*ds.attrs['res'][0], ds.y.max().item()+0.5*ds.attrs['res'][1], 
+                                                len(ds.x), len(ds.y))
+        ds.attrs['transform'] = transform
+        # set the transform and crs as attributes since that's how they're accessed later in the pipeline
+        # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
+        # ds.attrs['crs'] = ds.spatial_ref.crs_wkt
+        
+        return ds
 
 
 def read_DEM(fn=None, fjord=None):
