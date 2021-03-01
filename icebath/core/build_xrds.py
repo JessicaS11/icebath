@@ -10,11 +10,12 @@ import xarray as xr
 import warnings
 
 from icebath.core import fjord_props
+from icebath.core import bergxr
 
 import faulthandler
 faulthandler.enable()
 
-def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
+def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
     """
     Builds an XArray dataset of DEMs for finding icebergs when passed a path to a directory"
     """
@@ -61,15 +62,21 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
             # darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
         except RasterioIOError:
             print("RasterioIOError on your input file")
-            break        
-
+            break
+        
+        # read in and apply the bitmask
+        if bitmask==True:
+            bitmaskfn = path + f.rpartition("dem.tif")[0] +  "bitmask.tif"
+            maskarr = read_mask(bitmaskfn, fjord)
+            darrays[i] = darrays[i].where(maskarr==0, )
+            
         i = i + 1
 
     if len(darrays)==1 and np.all(darrays[0]) == 0:
         warnings.warn("Your DEM will not be put into XArray")
         return "nodems"
 
-    elif np.all(darrays) == 0:
+    elif len(darrays)>1 and np.all(darrays[darrays!=0]) == 0:
         warnings.simplefilter("always")
         warnings.warn("None of your DEMs will be put into XArray")
         return "nodems"
@@ -190,6 +197,33 @@ def read_DEM(fn=None, fjord=None):
             return darr
 
 
+def read_mask(fn=None, fjord=None):
+    """
+    Reads in the bitmask that matches a given DEM (only accepts GeoTiffs right now) into an XArray Dataarray with the desired format.
+    """
+
+    # try bringing in the rasters as virtual rasters (i.e. lazily loading)
+    with rasterio.open(fn) as src:
+        with WarpedVRT(src,src_crs=src.crs,crs=src.crs) as vrt:
+            darr = xr.open_rasterio(vrt)
+
+            darr = darr.rename('goodmask').squeeze().drop_vars('band')
+
+            # mask out the nodata values, since the nodatavals attribute is wrong
+            darr = darr.where(darr != -9999.)
+
+            if fjord != None:
+                # USE RIOXARRAY - specifically, slicexy() which can be fed the bounding box
+                # darr = darr.rio.slice_xy(fjord_props.get_fjord_bounds(fjord))
+                bbox = fjord_props.get_fjord_bounds(fjord)
+                if pd.Series(darr.y).is_monotonic_increasing:
+                    darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[1], bbox[3]))
+                else:
+                    darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[3], bbox[1]))
+            
+            return darr
+
+
 def get_dtime(string, startidx, endidx, fmtstr):    
     # print(string)
     # print(string[startidx:endidx])
@@ -240,7 +274,7 @@ def get_DEM_img_times(meta):
     if len(dtimelist) == 1:
         dtime = dtimelist[0]
     else:
-        sumdtime = dt.datetime.fromtimestamp(np.sum(dtime.timestamp() for dtime in dtimelist))
+        sumdtime = dt.datetime.fromtimestamp(np.sum([dtime.timestamp() for dtime in dtimelist]))
         dtime = dt.datetime.fromtimestamp(sumdtime.timestamp()//len(dtimelist))
 
     return dtime

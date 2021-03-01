@@ -4,8 +4,8 @@ from icebath.core import build_gdf
 # import faulthandler
 # faulthandler.enable()
 
-def run_workflow(indir, fjord, outdir, outfn, metastr=None):
-    ds = build_xrds.xrds_from_dir(indir, fjord, metastr)
+def run_workflow(indir, fjord, outdir, outfn, metastr=None, bitmask=False):
+    ds = build_xrds.xrds_from_dir(indir, fjord, metastr, bitmask)
 
     if ds is "nodems":
         # print("no dems to use")
