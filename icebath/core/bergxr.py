@@ -175,11 +175,19 @@ class BergXR:
         assert newfile != None, "You must provide an input file of the dataset to add."
         assert variable != None, "You must specify which variable you'd like to add"
         
-        # read in a netcdf as a virtual raster; will need a different rasterio.open for other file types
+        if newfile.endswith(".nc"):
+            newfilestr = 'netcdf:'+newfile+':'+variable
+        elif newfile.endswith(".tif"):
+            newfilestr = newfile
+        
         # read this in as a virtual raster
-        with rasterio.open('netcdf:'+newfile+':'+variable) as src:
+        with rasterio.open(newfilestr) as src:
             # print('Source CRS:' +str(src.crs))
-            with WarpedVRT(src,resampling=1,src_crs=src.crs,crs=self._xrds.attrs['crs']) as vrt:
+            # !!!!! a terrible idea but need to get this to run for now...
+            try: crs = self._xrds.attrs['crs']
+            except KeyError: crs = src.crs
+
+            with WarpedVRT(src,resampling=1,src_crs=src.crs,crs=crs) as vrt:
                             # warp_mem_limit=12000,warp_extras={'NUM_THREADS':2}) as vrt:
                 # print('Destination CRS:' +str(vrt.crs))
                 newdset = rioxarray.open_rasterio(vrt).chunk({'x': 1000, 'y': 1000})
@@ -192,16 +200,26 @@ class BergXR:
         # with rioxarray.open_rasterio(newfile) as newdset: #, chunks={'x': 500, 'y': 500}) as newdset:
                 try: newdset=newdset.squeeze().drop_vars('band')
                 except ValueError: pass
+
+                newdset = newdset.rename(variable)
+
     #         newdset = xr.open_dataset(newfile, chunks={'x': 500, 'y': 500})
             # Improvement: actually check CRS matching
             # apply the existing chunking to the new dataset
                 # newdset = newdset.rio.reproject(dst_crs=self._xrds.attrs['crs']).chunk({'x': 1000, 'y': 1000})
                 # newvar = newdset[variable].interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
-                
-                newvar = newdset.interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
 
+                try:
+                    newvar = newdset.interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
+                except KeyError:
+                    newvar = newdset.interp(x=self._xrds['x'], y=self._xrds['y'])
+                
                 self._xrds[varname] = newvar
+
                 del newvar
+                del newdset
+
+                return self._xrds
 
 
         
