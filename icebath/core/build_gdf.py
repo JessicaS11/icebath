@@ -290,6 +290,11 @@ def get_poss_bergs_fr_raster(onedem, usedask):
     return poss_bergs
 
 
+def getexval(potvals, coord, val):
+    idx = (np.abs(potvals - val)).argmin()
+    nearval = potvals.isel({coord: idx}).item()
+    return nearval
+
 def filter_pot_bergs(poss_bergs, onedem):
     """
     Test each potential iceberg for validity, and if valid compute the sea level adjustment and
@@ -315,7 +320,7 @@ def filter_pot_bergs(poss_bergs, onedem):
         # make a valid shapely Polygon of the berg vertices
         # print(berg)
         origberg = Polygon(berg)
-        print('got a new iceberg')
+        # print('got a new iceberg')
 
         if origberg.is_valid == False or origberg.is_empty == True:
             # print("invalid or empty berg geometry")
@@ -360,26 +365,32 @@ def filter_pot_bergs(poss_bergs, onedem):
 
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
-        print(onedem.rio._internal_bounds())
         bound_box = origberg.bounds
-        print(bound_box)
-        # berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
-        berg_dem = onedem.rio.slice_xy(*bound_box)
-        
+        try: berg_dem = onedem.rio.slice_xy(*bound_box)
+        except NoDataInBounds:
+            coords = ('x','y','x','y')
+            exbound_box = []
+            for a, b in zip(bound_box, coords):
+                exbound_box.append(getexval(onedem[b], b, a))
+            berg_dem = onedem.rio.slice_xy(*exbound_box)
+            if np.all(np.isnan(berg_dem.elevation.values)):
+                print("all nan area - no actual berg")
+                continue
+
         # berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
         #                                 # y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo? May have been because of issues with applying transform to right-side-up image above?
                                         # y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
         
         # print(bound_box)
         # print(np.shape(berg_dem))
-        print(berg_dem)
-        print(berg_dem.elevation.values)
+        # print(berg_dem)
+        # print(berg_dem.elevation.values)
 
         # extract the iceberg elevation values
         # Note: rioxarray does not carry crs info from the dataset to individual variables
         # print(berg)
         # print(len(bergs))
-        print(berg.area)
+        # print(berg.area)
         try:
             vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
         except NoDataInBounds:
