@@ -2,7 +2,7 @@ def get_sw_dens(fjord):
     """
     Get the fjord-specific seawater density, in kg/m3
     """
-    rho_sw = {"JI":1027.3, "UP":1028.5}
+    rho_sw = {"JI":1027.3, "UP":1028.5, "KB":1027.9}
     rho_sw_err = {"JI":1, "UP":1, "KB":1}
 
     try:
