@@ -49,7 +49,7 @@ def run_workflow(indir, fjord, outdir, outfn, metastr=None, bitmask=False):
             shpgdf = gdf.copy(deep=True)
             del shpgdf['DEMarray']
             del shpgdf['filtered_draft']
-            shpgdf.to_file(outdir+outfn, driver="GPKG")
+            shpgdf.to_file(outdir+outfn, driver="GPKG", mode="a")
         
         try:
             del ds

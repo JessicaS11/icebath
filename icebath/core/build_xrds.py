@@ -82,6 +82,7 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         return "nodems"
 
     else:
+        # I just discovered xarray's mfdataset with the preprocess option to modify each dataset prior to opening. I'm guessing that'd be the way to go here
         # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
         darr = xr.concat(darrays, 
                         dim=pd.Index(dtimes, name='dtime'), 
@@ -110,9 +111,12 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         print('Please note the transform is computed assuming a coordinate reference system\
     where x(min) is west and y(min) is south')
         # inputs: west, south, east, north, width, height
+        # don't use len(x,y) for width and height in case they're not continuous
+        width = abs((ds.x.max().item() - ds.x.min().item())/ds.attrs['res'][0])
+        ht = abs((ds.y.max().item() - ds.y.min().item())/ds.attrs['res'][1])
         transform = rasterio.transform.from_bounds(ds.x.min().item()-0.5*ds.attrs['res'][0], ds.y.min().item()-0.5*ds.attrs['res'][1], 
                                                 ds.x.max().item()+0.5*ds.attrs['res'][0], ds.y.max().item()+0.5*ds.attrs['res'][1], 
-                                                len(ds.x), len(ds.y))
+                                                width, ht)
         ds.attrs['transform'] = transform
         # set the transform and crs as attributes since that's how they're accessed later in the pipeline
         # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
