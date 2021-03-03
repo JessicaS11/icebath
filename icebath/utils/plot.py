@@ -240,8 +240,8 @@ def meas_vs_infer_fig(berg_data, save=False):
             axes[i,j].set_title(plotcol, fontsize=11)
             # axes[i,j].text(0.02, 0.95,'c', weight='bold', transform=axes[i,j].transAxes)
          
-            plotmin = 25 # 50 for JI
-            plotmax = 700
+            plotmin = 0 # 50 for JI
+            plotmax = 700 # 700 for JI
             axes[i,j].plot([plotmin,plotmax],[plotmin, plotmax], color='k', linestyle=':')
 
             #modify the legend handle to not plot error bars

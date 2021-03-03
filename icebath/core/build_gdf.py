@@ -56,7 +56,7 @@ def gdf_of_bergs(onedem, usedask=False):
         except KeyError:
             print("Your input DEM does not have a CRS attribute")
 
-    print("going to enter the rasterize function")
+    # print("going to enter the rasterize function")
     poss_bergs = get_poss_bergs_fr_raster(onedem, usedask)
     print("done rasterizing and getting possible icebergs")
     print(len(poss_bergs))
@@ -273,8 +273,8 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[]).astype(seglabeled_arr.dtype)
         # apparently rasterio can't handle int64 inputs, which is what border_filtering returns   
 
-        import matplotlib.pyplot as plt
-        print(plt.imshow(labeled_arr))
+        # import matplotlib.pyplot as plt
+        # print(plt.imshow(labeled_arr))
         # create iceberg polygons
         # somehow a < 1 pixel berg made it into this list... I'm doing a secondary filtering by area in the iceberg filter step for now
         poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=onedem.attrs['transform']))[:-1]
@@ -366,14 +366,14 @@ def filter_pot_bergs(poss_bergs, onedem):
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
         bound_box = origberg.bounds
-        try: berg_dem = onedem.rio.slice_xy(*bound_box)
+        try: berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
         except NoDataInBounds:
             coords = ('x','y','x','y')
             exbound_box = []
             for a, b in zip(bound_box, coords):
                 exbound_box.append(getexval(onedem[b], b, a))
-            berg_dem = onedem.rio.slice_xy(*exbound_box)
-            if np.all(np.isnan(berg_dem.elevation.values)):
+            berg_dem = onedem['elevation'].rio.slice_xy(*exbound_box)
+            if np.all(np.isnan(berg_dem.values)):
                 print("all nan area - no actual berg")
                 continue
 
