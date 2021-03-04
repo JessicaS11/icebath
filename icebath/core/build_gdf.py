@@ -38,7 +38,7 @@ def xarray_to_gdf(xr):
 
 # DevGoal: This function could have improvements to its parallelization (especially in the later steps)
 # and could certainly be refactored into a larger number of simpler functions
-def gdf_of_bergs(onedem, usedask=False):
+def gdf_of_bergs(onedem, usedask=True):
     """
     Takes an xarray dataarray for one time period and returns the needed geodataframe of icebergs
     """
@@ -152,7 +152,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             del elev_overlap
             del seglabeled_overlap
             del labeled_overlap
-            print("deleted the intermediate steps")
+            # print("deleted the intermediate steps")
         except NameError:
             pass
 
@@ -366,6 +366,7 @@ def filter_pot_bergs(poss_bergs, onedem):
 
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
+        print(onedem.rio._internal_bounds())
         bound_box = origberg.bounds
         try: berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
         except NoDataInBounds:
