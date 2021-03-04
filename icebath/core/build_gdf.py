@@ -311,6 +311,7 @@ def filter_pot_bergs(poss_bergs, onedem):
 
     fjord = onedem.attrs['fjord']
     max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
+    minfree = fjord_props.get_min_freeboard(fjord)
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
 
     # 10 pixel buffer
@@ -421,11 +422,11 @@ def filter_pot_bergs(poss_bergs, onedem):
         sl_adj = np.nanmedian(sea)
         # print(sl_adj)
         
-        # check that the median freeboard elevation (pre-filtering) is at least 15 m above sea level
-        if abs(np.nanmedian(vals)-sl_adj) < 15:
+        # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
+        if abs(np.nanmedian(vals)-sl_adj) < minfree:
             # print(np.nanmedian(vals))
             # print(sl_adj)
-            print('median iceberg freeboard less than 15 m')
+            print('median iceberg freeboard less than ' +  str(minfree) +' m')
             continue
 
         # apply the sea level adjustment to the elevation values

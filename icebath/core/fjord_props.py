@@ -56,6 +56,19 @@ def get_ice_thickness(fjord):
         print("The current fjord does not have an ice thickness entry - using a default value!")
         return 1500
 
+def get_min_freeboard(fjord):
+    """
+    Get a required minimum median freeboard for filtering out icebergs
+    """
+
+    minfree = {"JI": 15, "KB":5}
+
+    try:
+        return minfree.pop(fjord)
+    except KeyError:
+        print("The current fjord does not have a minimum freeboard median entry - using a default value!")
+        return 10
+
 def get_fjord_bounds(fjord):
     """
     Get geospatial bounds of the fjord to subset measurement files (e.g. BedMachine, IBCAO)
