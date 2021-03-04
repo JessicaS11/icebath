@@ -1,8 +1,10 @@
 def get_sw_dens(fjord):
     """
     Get the fjord-specific seawater density, in kg/m3
+    For JI and UP, the density is computed at 250 m depth
+    For KB, the density is computed at 150 m depth
     """
-    rho_sw = {"JI":1027.3, "UP":1028.5}
+    rho_sw = {"JI":1027.3, "UP":1028.5, "KB":1027.9}
     rho_sw_err = {"JI":1, "UP":1, "KB":1}
 
     try:
@@ -53,6 +55,19 @@ def get_ice_thickness(fjord):
     except KeyError:
         print("The current fjord does not have an ice thickness entry - using a default value!")
         return 1500
+
+def get_min_freeboard(fjord):
+    """
+    Get a required minimum median freeboard for filtering out icebergs
+    """
+
+    minfree = {"JI": 15, "KB":5}
+
+    try:
+        return minfree.pop(fjord)
+    except KeyError:
+        print("The current fjord does not have a minimum freeboard median entry - using a default value!")
+        return 10
 
 def get_fjord_bounds(fjord):
     """

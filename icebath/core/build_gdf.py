@@ -7,6 +7,7 @@ import geopandas as gpd
 import pandas as pd
 import rasterio
 import rioxarray
+from rioxarray.exceptions import NoDataInBounds
 import scipy.stats as stats
 from shapely.geometry import Polygon
 import xarray as xr
@@ -55,7 +56,7 @@ def gdf_of_bergs(onedem, usedask=False):
         except KeyError:
             print("Your input DEM does not have a CRS attribute")
 
-    print("going to enter the rasterize function")
+    # print("going to enter the rasterize function")
     poss_bergs = get_poss_bergs_fr_raster(onedem, usedask)
     print("done rasterizing and getting possible icebergs")
     print(len(poss_bergs))
@@ -143,8 +144,8 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # re-flip the labeled_arr so it matches the orientation of the original elev data that's within the xarray
         for ax in flipax:
             labeled_arr = da.flip(labeled_arr, axis=ax)
-        import matplotlib.pyplot as plt
-        print(plt.imshow(labeled_arr))
+        # import matplotlib.pyplot as plt
+        # print(plt.imshow(labeled_arr))
 
         try:
             del elev_copy
@@ -242,7 +243,7 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # print(poss_bergs_gdf.geometry.plot())
         poss_berg_combined = gpd.overlay(poss_bergs_gdf, poss_bergs_gdf, how='union')
         # print(poss_berg_combined)
-        print(poss_berg_combined.geometry.plot())
+        # print(poss_berg_combined.geometry.plot())
         poss_bergs = [berg for berg in poss_berg_combined.geometry]
         # print(poss_bergs)
         print(len(poss_bergs))
@@ -272,7 +273,10 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[]).astype(seglabeled_arr.dtype)
         # apparently rasterio can't handle int64 inputs, which is what border_filtering returns   
 
-        # create iceberg polygons 
+        # import matplotlib.pyplot as plt
+        # print(plt.imshow(labeled_arr))
+        # create iceberg polygons
+        # somehow a < 1 pixel berg made it into this list... I'm doing a secondary filtering by area in the iceberg filter step for now
         poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=onedem.attrs['transform']))[:-1]
   
         try:
@@ -285,6 +289,11 @@ def get_poss_bergs_fr_raster(onedem, usedask):
 
     return poss_bergs
 
+
+def getexval(potvals, coord, val):
+    idx = (np.abs(potvals - val)).argmin()
+    nearval = potvals.isel({coord: idx}).item()
+    return nearval
 
 def filter_pot_bergs(poss_bergs, onedem):
     """
@@ -302,6 +311,7 @@ def filter_pot_bergs(poss_bergs, onedem):
 
     fjord = onedem.attrs['fjord']
     max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
+    minfree = fjord_props.get_min_freeboard(fjord)
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
 
     # 10 pixel buffer
@@ -311,6 +321,7 @@ def filter_pot_bergs(poss_bergs, onedem):
         # make a valid shapely Polygon of the berg vertices
         # print(berg)
         origberg = Polygon(berg)
+        # print('got a new iceberg')
 
         if origberg.is_valid == False or origberg.is_empty == True:
             # print("invalid or empty berg geometry")
@@ -329,6 +340,7 @@ def filter_pot_bergs(poss_bergs, onedem):
             for sb in subbergs:
                 sb = Polygon(sb)
                 area.append(sb.area)
+            # print(area)
             idx = np.where(area == np.nanmax(area))[0]
             berg = Polygon(subbergs[idx[0]])
             # print('tried to trim down a multipolygon')
@@ -355,20 +367,37 @@ def filter_pot_bergs(poss_bergs, onedem):
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
         bound_box = origberg.bounds
-        berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
-        
+        try: berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
+        except NoDataInBounds:
+            coords = ('x','y','x','y')
+            exbound_box = []
+            for a, b in zip(bound_box, coords):
+                exbound_box.append(getexval(onedem[b], b, a))
+            berg_dem = onedem['elevation'].rio.slice_xy(*exbound_box)
+            if np.all(np.isnan(berg_dem.values)):
+                print("all nan area - no actual berg")
+                continue
+
         # berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
         #                                 # y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo? May have been because of issues with applying transform to right-side-up image above?
-        #                                 y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
+                                        # y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
         
         # print(bound_box)
-        # print(berg_dem)
         # print(np.shape(berg_dem))
+        # print(berg_dem)
+        # print(berg_dem.elevation.values)
+
         # extract the iceberg elevation values
         # Note: rioxarray does not carry crs info from the dataset to individual variables
         # print(berg)
         # print(len(bergs))
-        vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
+        # print(berg.area)
+        try:
+            vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
+        except NoDataInBounds:
+            if berg.area < (res**2.0) * 10.0:
+                continue
+            # vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs'], all_touched=True).values.flatten()
 
         # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
         vals = vals[~np.isnan(vals)]
@@ -393,11 +422,11 @@ def filter_pot_bergs(poss_bergs, onedem):
         sl_adj = np.nanmedian(sea)
         # print(sl_adj)
         
-        # check that the median freeboard elevation (pre-filtering) is at least 15 m above sea level
-        if abs(np.nanmedian(vals)-sl_adj) < 15:
+        # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
+        if abs(np.nanmedian(vals)-sl_adj) < minfree:
             # print(np.nanmedian(vals))
             # print(sl_adj)
-            # print('median iceberg freeboard less than 15 m')
+            print('median iceberg freeboard less than ' +  str(minfree) +' m')
             continue
 
         # apply the sea level adjustment to the elevation values

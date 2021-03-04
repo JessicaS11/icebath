@@ -141,6 +141,10 @@ class BergGDF:
             self._gdf.at[datarow.Index, column+'_med'] = np.nanmedian(indata)
             self._gdf.at[datarow.Index,column+'_max'] = np.nanmax(indata)
             self._gdf.at[datarow.Index,column+'_mad'] = stats.median_absolute_deviation(indata, nan_policy='omit')
+        
+        # set type for column (since default is now object)
+        for key in [column+'_med', column+'_max', column+'_mad']:
+            self._gdf[str(key)] = self._gdf[str(key)].astype('float64')
 
 
     def wat_depth_uncert(self, column=''):
@@ -168,6 +172,8 @@ class BergGDF:
             med_H_err = abs(med_H)*((freeboard_err/med_freebd)**2+(rho_conversion_err/rho_conversion)**2)**(0.5)
             err = ((med_H_err)**2+(freeboard_err)**2)**(0.5)
             self._gdf.at[datarow.Index, column+'_err'] = err
+        
+        self._gdf[column+'_err'] = self._gdf[column+'_err'].astype(float)
    
 
     # ToDo: generalize this function to be for any input geometry and raster (with matching CRS)
@@ -198,12 +204,15 @@ class BergGDF:
             # subset_raster = raster.rio.clip_box(*datarow[geom_name].bounds)
             # subset_raster = raster.rio.clip([datarow[geom_name].bounds], crs=crs)
             bounds = datarow[geom_name].bounds
-            subset_raster = raster.sel(x=slice(bounds[0], bounds[2]), y=slice(bounds[1],bounds[3]))
+            subset_raster = raster.rio.slice_xy(*bounds)
+            # below line caused "no data" issues due to negative y coords
+            # subset_raster = raster.sel(x=slice(bounds[0], bounds[2]), y=slice(bounds[1],bounds[3]))
             vals = subset_raster.rio.clip([datarow[geom_name]], crs=crs).values.flatten()
             # rioxarray introduces a fill value, regardless of the input nodata setup
             vals[vals==-9999] = np.nan
         except NoDataInBounds:
             print('no data')
+            print(datarow[geom_name].bounds)
             vals = np.nan
         return vals
       

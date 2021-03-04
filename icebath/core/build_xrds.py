@@ -10,11 +10,12 @@ import xarray as xr
 import warnings
 
 from icebath.core import fjord_props
+from icebath.core import bergxr
 
 import faulthandler
 faulthandler.enable()
 
-def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
+def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
     """
     Builds an XArray dataset of DEMs for finding icebergs when passed a path to a directory"
     """
@@ -61,52 +62,67 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf'):
             # darrays[i] = read_DEM(path+f.rpartition("_dem.tif")[0] + "_dem_geoidcomp.tif")
         except RasterioIOError:
             print("RasterioIOError on your input file")
-            break        
-
+            break
+        
+        # read in and apply the bitmask
+        if bitmask==True:
+            bitmaskfn = path + f.rpartition("dem.tif")[0] +  "bitmask.tif"
+            maskarr = read_mask(bitmaskfn, fjord)
+            darrays[i] = darrays[i].where(maskarr==0, )
+            
         i = i + 1
 
-    if len(darrays)==1:
-        assert np.all(darrays[0]) != 0, "Your DEM will not be put into XArray"
-    else:
-        assert np.all(darrays[darrays!=0]) != 0, "None of your DEMs will be put into XArray"
-    
-    # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
-    darr = xr.concat(darrays, 
-                    dim=pd.Index(dtimes, name='dtime'), 
-                    # coords=['x','y'], 
-                    join='outer').chunk({'dtime': 1, 'x':1024, 'y':1024}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
-                    # combine_attrs='no_conflicts' # only in newest version of xarray
+    if len(darrays)==1 and np.all(darrays[0]) == 0:
+        warnings.warn("Your DEM will not be put into XArray")
+        return "nodems"
 
-    try:
-        for arr in darrays:
-            arr.close()
-    except:
-        pass
-    del darrays
-    
-    # convert to dataset with elevation as a variable and add attributes
-    attr = darr.attrs
-    ds = darr.to_dataset()
-    ds.attrs = attr
-    ds.attrs['fjord'] = fjord
-    attr=None
-    # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
-    # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
-    
-    # using rioxarray means the transform is read in/created as part of the geospatial info, so it's unnecessary to manually create a transform
-    # create affine transform for concatted dataset
-    print('Please note the transform is computed assuming a coordinate reference system\
- where x(min) is west and y(min) is south')
-    # inputs: west, south, east, north, width, height
-    transform = rasterio.transform.from_bounds(ds.x.min().item()-0.5*ds.attrs['res'][0], ds.y.min().item()-0.5*ds.attrs['res'][1], 
-                                             ds.x.max().item()+0.5*ds.attrs['res'][0], ds.y.max().item()+0.5*ds.attrs['res'][1], 
-                                             len(ds.x), len(ds.y))
-    ds.attrs['transform'] = transform
-    # set the transform and crs as attributes since that's how they're accessed later in the pipeline
-    # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
-    # ds.attrs['crs'] = ds.spatial_ref.crs_wkt
-    
-    return ds
+    elif len(darrays)>1 and np.all(darrays[darrays!=0]) == 0:
+        warnings.simplefilter("always")
+        warnings.warn("None of your DEMs will be put into XArray")
+        return "nodems"
+
+    else:
+        # I just discovered xarray's mfdataset with the preprocess option to modify each dataset prior to opening. I'm guessing that'd be the way to go here
+        # darr = xr.combine_nested(darrays, concat_dim=['dtime'])
+        darr = xr.concat(darrays, 
+                        dim=pd.Index(dtimes, name='dtime'), 
+                        # coords=['x','y'], 
+                        join='outer').chunk({'dtime': 1, 'x':1024, 'y':1024}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
+                        # combine_attrs='no_conflicts' # only in newest version of xarray
+
+        try:
+            for arr in darrays:
+                arr.close()
+        except:
+            pass
+        del darrays
+        
+        # convert to dataset with elevation as a variable and add attributes
+        attr = darr.attrs
+        ds = darr.to_dataset()
+        ds.attrs = attr
+        ds.attrs['fjord'] = fjord
+        attr=None
+        # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
+        # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
+        
+        # using rioxarray means the transform is read in/created as part of the geospatial info, so it's unnecessary to manually create a transform
+        # create affine transform for concatted dataset
+        print('Please note the transform is computed assuming a coordinate reference system\
+    where x(min) is west and y(min) is south')
+        # inputs: west, south, east, north, width, height
+        # don't use len(x,y) for width and height in case they're not continuous
+        width = abs((ds.x.max().item() - ds.x.min().item())/ds.attrs['res'][0])
+        ht = abs((ds.y.max().item() - ds.y.min().item())/ds.attrs['res'][1])
+        transform = rasterio.transform.from_bounds(ds.x.min().item()-0.5*ds.attrs['res'][0], ds.y.min().item()-0.5*ds.attrs['res'][1], 
+                                                ds.x.max().item()+0.5*ds.attrs['res'][0], ds.y.max().item()+0.5*ds.attrs['res'][1], 
+                                                width, ht)
+        ds.attrs['transform'] = transform
+        # set the transform and crs as attributes since that's how they're accessed later in the pipeline
+        # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
+        # ds.attrs['crs'] = ds.spatial_ref.crs_wkt
+        
+        return ds
 
 
 def read_DEM(fn=None, fjord=None):
@@ -152,7 +168,7 @@ def read_DEM(fn=None, fjord=None):
             # we rename it and remove the band as a coordinate, since our DEM only has one dimension
             # squeeze removes dimensions of length 0 or 1, in this case our 'band'
             # Then, drop('band') actually removes the 'band' dimension from the Dataset
-            darr = darr.rename('elevation').squeeze().drop('band')
+            darr = darr.rename('elevation').squeeze().drop_vars('band')
             # darr = darr.rename({'band':'dtime'})
         
             # if we wanted to instead convert it to a dataset
@@ -172,6 +188,33 @@ def read_DEM(fn=None, fjord=None):
                 del darr.attrs["units"] 
             except KeyError:
                 pass
+
+            if fjord != None:
+                # USE RIOXARRAY - specifically, slicexy() which can be fed the bounding box
+                # darr = darr.rio.slice_xy(fjord_props.get_fjord_bounds(fjord))
+                bbox = fjord_props.get_fjord_bounds(fjord)
+                if pd.Series(darr.y).is_monotonic_increasing:
+                    darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[1], bbox[3]))
+                else:
+                    darr = darr.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[3], bbox[1]))
+            
+            return darr
+
+
+def read_mask(fn=None, fjord=None):
+    """
+    Reads in the bitmask that matches a given DEM (only accepts GeoTiffs right now) into an XArray Dataarray with the desired format.
+    """
+
+    # try bringing in the rasters as virtual rasters (i.e. lazily loading)
+    with rasterio.open(fn) as src:
+        with WarpedVRT(src,src_crs=src.crs,crs=src.crs) as vrt:
+            darr = xr.open_rasterio(vrt)
+
+            darr = darr.rename('goodmask').squeeze().drop_vars('band')
+
+            # mask out the nodata values, since the nodatavals attribute is wrong
+            darr = darr.where(darr != -9999.)
 
             if fjord != None:
                 # USE RIOXARRAY - specifically, slicexy() which can be fed the bounding box
@@ -235,7 +278,7 @@ def get_DEM_img_times(meta):
     if len(dtimelist) == 1:
         dtime = dtimelist[0]
     else:
-        sumdtime = dt.datetime.fromtimestamp(np.sum(dtime.timestamp() for dtime in dtimelist))
+        sumdtime = dt.datetime.fromtimestamp(np.sum([dtime.timestamp() for dtime in dtimelist]))
         dtime = dt.datetime.fromtimestamp(sumdtime.timestamp()//len(dtimelist))
 
     return dtime
