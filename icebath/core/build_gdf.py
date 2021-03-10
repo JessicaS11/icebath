@@ -12,6 +12,7 @@ import scipy.stats as stats
 from shapely.geometry import Polygon
 import xarray as xr
 import warnings
+import itertools as it
 
 from icebath.core import fjord_props
 from icebath.core import fl_ice_calcs as icalcs
@@ -187,18 +188,14 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         '''
 
         # URL: https://stackoverflow.com/questions/66232232/produce-vector-output-from-a-dask-array/66245347?noredirect=1#comment117119583_66245347
+        def getpx(chunkid, chunksz):
+            amin = chunkid[0] * chunksz[0][0]
+            amax = amin + chunksz[0][0]
+            bmin = chunkid[1] * chunksz[1][0]
+            bmax = bmin + chunksz[1][0]
+            return (amin, amax, bmin, bmax)
 
-        @dask.delayed
-        def get_bergs(labeled_blocks, pointer, chunk0, chunk1):
-            
-            print("running the dask delayed function")
-            def getpx(chunkid, chunksz):
-                amin = chunkid[0] * chunksz[0][0]
-                amax = amin + chunksz[0][0]
-                bmin = chunkid[1] * chunksz[1][0]
-                bmax = bmin + chunksz[1][0]
-                return (amin, amax, bmin, bmax)
-
+        def get_transform(onedem, chunk0, chunk1):
             # order of all inputs (and outputs) should be y, x when axis order is used
             chunksz = (onedem.chunks['y'], onedem.chunks['x'])
             # rasterio_trans = rasterio.transform.guard_transform(onedem.attrs["transform"])
@@ -214,18 +211,32 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             # use rasterio Windows and rioxarray to construct transform
             # https://rasterio.readthedocs.io/en/latest/topics/windowed-rw.html#window-transforms
             chwindow = rasterio.windows.Window(xmini, ymini, xmaxi-xmini, ymaxi-ymini)
-            trans = onedem.rio.isel_window(chwindow).rio.transform(recalc=True)
-            # print(trans)
+            return onedem.rio.isel_window(chwindow).rio.transform(recalc=True)
+        
+        @dask.delayed
+        def get_bergs(labeled_blocks, trans):
+            
+            print("running the dask delayed function")
+            # NOTE: From Don: Originally, onedem was called within the delayed function... 
+            # I have a feeling this might have caused onedem to be copied in memory a whole bunch of time
+            # Among the x number of workers ...
+            # I have pulled out the figuring out transform to the outside as a non-delayed function.
+            # I found that this transform calculation was very quick, so it should be okay being non-parallel.
+            # For future reference, I suggest scattering the data if you want to be able to access it within the workers
+            # https://distributed.dask.org/en/latest/locality.html
 
             return list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(
                                 labeled_blocks.astype('int32'), transform=trans))[:-1]
 
         
-        for __, obj in enumerate(labeled_arr.to_delayed()):
-            for bl in obj:
-                piece = dask.delayed(get_bergs)(bl, *bl.key)
-                poss_bergs_list.append(piece)
-                del piece
+        # NOTE: Itertools would flatten the dask delayeds so you don't have a for loop
+        # this would make the complexity O(n) rather than O(n^2)
+        grid_delayeds = [d for d in it.chain.from_iterable(labeled_arr.to_delayed())]
+        for labeled_blocks in grid_delayeds:
+            _, chunk0, chunk1 = labeled_blocks.key
+            trans = get_transform(onedem, chunk0, chunk1)
+            piece = get_bergs(labeled_blocks, trans) # If a function already have delayed decorator, don't need it anymore
+            poss_bergs_list.append(piece)
         
         poss_bergs_list = dask.compute(*poss_bergs_list)
         # tried working with this instead of the for loops above
