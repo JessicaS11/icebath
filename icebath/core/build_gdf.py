@@ -232,10 +232,10 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # NOTE: Itertools would flatten the dask delayeds so you don't have a for loop
         # this would make the complexity O(n) rather than O(n^2)
         grid_delayeds = [d for d in it.chain.from_iterable(labeled_arr.to_delayed())]
-        for dd in grid_delayeds:
-            _, chunk0, chunk1 = dd.key
+        for labeled_blocks in grid_delayeds:
+            _, chunk0, chunk1 = labeled_blocks.key
             trans = get_transform(onedem, chunk0, chunk1)
-            piece = get_bergs(dd, trans) # If a function already have delayed decorator, don't need it anymore
+            piece = get_bergs(labeled_blocks, trans) # If a function already have delayed decorator, don't need it anymore
             poss_bergs_list.append(piece)
         
         poss_bergs_list = dask.compute(*poss_bergs_list)
