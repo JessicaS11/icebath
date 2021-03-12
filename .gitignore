@@ -136,3 +136,6 @@ dmypy.json
 # misc
 .DS_Store
 .vscode
+
+# scratch notebooks
+scratch_notebooks/*
