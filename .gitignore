@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-Looks like we might need a quick v0.3.4 release. How is everyone's schedule time-wise? I was thinking of pulling together a changelog for v0.3.3 too for https://icepyx.readthedocs.io/en/development/user_guide/changelog/index.html, but we could do it tomorrow instead.lib/
+lib/
 lib64/
 parts/
 sdist/
