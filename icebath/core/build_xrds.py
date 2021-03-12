@@ -87,7 +87,7 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         darr = xr.concat(darrays, 
                         dim=pd.Index(dtimes, name='dtime'), 
                         # coords=['x','y'], 
-                        join='outer').chunk({'dtime': 1, 'x':2048, 'y':2048}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
+                        join='outer').chunk({'dtime': 1, 'x':3072, 'y':3072}) # figure out a better value for chunking this (it slows the JI one with 3 dems way down)
                         # combine_attrs='no_conflicts' # only in newest version of xarray
 
         try:

@@ -100,7 +100,6 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         flipax.append(1)
     if pd.Series(onedem.y).is_monotonic_increasing:
         flipax.append(0)
-    print(flipax)
 
     fjord = onedem.attrs['fjord']
     min_area = fjord_props.get_min_berg_area(fjord)
@@ -114,8 +113,8 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         
         # print(onedem)
         # see else statement with non-dask version for descriptions of what each step is doing
-        def seg_wrapper(tiles, elev_maps):
-            return raster_ops.labeled_from_segmentation(tiles, elev_maps, [3,10], res, min_area, flipax=[])
+        def seg_wrapper(tiles):
+            return raster_ops.labeled_from_segmentation(tiles, markers=[3,10], resolution=res, min_area=min_area, flipax=[])
         def filter_wrapper(tiles, elevs):
             return raster_ops.border_filtering(tiles, elevs, flipax=[])
 
@@ -125,20 +124,17 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # import matplotlib.pyplot as plt
         # print(plt.imshow(elev_copy))
 
-        import dask_image.ndfilters as da_ndfilt
-        elev_map = da_ndfilt.sobel(elev_copy)
-        elev_map_overlap = da.overlap.overlap(elev_map, depth=10, boundary='nearest')
         elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
-        seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, elev_map_overlap, trim=False) # including depth=10 here will ADD another overlap
+        seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, trim=False) # including depth=10 here will ADD another overlap
         labeled_overlap = da.map_overlap(filter_wrapper, seglabeled_overlap, elev_overlap, trim=False, dtype='int32')
         print("Got labeled raster of potential icebergs for an image")
         labeled_arr = da.overlap.trim_overlap(labeled_overlap, depth=10)
         
         # re-flip the labeled_arr so it matches the orientation of the original elev data that's within the xarray
-        # for ax in flipax:
-        #     labeled_arr = da.flip(labeled_arr, axis=ax)
-        import matplotlib.pyplot as plt
-        print(plt.imshow(labeled_arr))
+        for ax in flipax:
+            labeled_arr = da.flip(labeled_arr, axis=ax)
+        # import matplotlib.pyplot as plt
+        # print(plt.imshow(labeled_arr))
 
         try:
             del elev_copy
@@ -320,7 +316,6 @@ def filter_pot_bergs(poss_bergs, onedem):
     minfree = fjord_props.get_min_freeboard(fjord)
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
 
-    onedem = onedem.chunk({"x": 5000, "y":5000})
     # 10 pixel buffer
     buffer = 10 * res
 
@@ -426,7 +421,8 @@ def filter_pot_bergs(poss_bergs, onedem):
         slvals = berg_dem.rio.clip([slberg], crs=onedem.attrs['crs']).values.flatten()
         slvals=slvals[~np.isnan(slvals)]
 
-        sea = [val for val in slvals if val not in orig_vals]
+        # sea = [val for val in slvals if val not in orig_vals]
+        sea = np.setdiff1d(slvals, orig_vals)
         # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
         sl_adj = np.nanmedian(sea)
         # print(sl_adj)
