@@ -20,35 +20,28 @@ from icebath.utils import raster_ops
 from icebath.utils import vector_ops
 
 
-def xarray_to_gdf(xr):
+def xarray_to_gdf(ds):
     """
     Takes an xarray DataSet and generates a geodataframe of icebergs from the DEMs
     """
     berg_gdf = gpd.GeoDataFrame(data=None)
 
-    for num in range(0, len(xr['dtime'])):
-        temp_berg_df = gdf_of_bergs(xr.isel({'dtime':num}))
+    for num in range(0, len(ds['dtime'])):
+        temp_berg_df = gdf_of_bergs(ds.isel({'dtime':num}))
         berg_gdf = berg_gdf.append(temp_berg_df, ignore_index=True)
 
-    berg_gdf.crs = xr.attrs['crs']
+    berg_gdf.crs = ds.attrs['crs']
     berg_gdf.sl_adjust.attrs['note'] = "sea level adjustment is relative to tidal height, not 0msl"
     berg_gdf.sl_adjust.attrs['units'] = "meters"
 
     return berg_gdf
 
 
-# DevGoal: This function could have improvements to its parallelization (especially in the later steps)
-# and could certainly be refactored into a larger number of simpler functions
 def gdf_of_bergs(onedem, usedask=True):
     """
     Takes an xarray dataarray for one time period and returns the needed geodataframe of icebergs
     """
-    # np.warnings.filterwarnings('error', category=np.VisibleDeprecationWarning)
-    
-    # get potential icebergs from edges in raster image (or some other method - do it for the thresholding first since have a function for it)
-    # threshold=60
-    # bergs = raster_ops.poly_from_thresh(onedem.x, onedem.y, onedem.elevation, threshold)
-    
+   
     try:
         onedem.elevation.attrs['crs'] = onedem.attrs['crs']
     except KeyError:
@@ -57,9 +50,8 @@ def gdf_of_bergs(onedem, usedask=True):
         except KeyError:
             print("Your input DEM does not have a CRS attribute")
 
-    # print("going to enter the rasterize function")
+    # process the raster and polygonize the potential icebergs
     poss_bergs = get_poss_bergs_fr_raster(onedem, usedask)
-    print("done rasterizing and getting possible icebergs")
     print(len(poss_bergs))
 
     # Exclude icebergs that don't meet the requirements
@@ -103,17 +95,12 @@ def gdf_of_bergs(onedem, usedask=True):
 
 def get_poss_bergs_fr_raster(onedem, usedask):
         
-    # trans=onedem.attrs['transform']
     flipax=[]
-    # if trans[0] < 0:
-    #     flipax.append(1)
-    # if trans[4] < 0:
-    #     flipax.append(0)
     if pd.Series(onedem.x).is_monotonic_decreasing:
         flipax.append(1)
     if pd.Series(onedem.y).is_monotonic_increasing:
         flipax.append(0)
-    
+
     fjord = onedem.attrs['fjord']
     min_area = fjord_props.get_min_berg_area(fjord)
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y  
@@ -127,19 +114,20 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # print(onedem)
         # see else statement with non-dask version for descriptions of what each step is doing
         def seg_wrapper(tiles):
-            return raster_ops.labeled_from_segmentation(tiles, [3,10], resolution=res, min_area=min_area, flipax=[])
+            return raster_ops.labeled_from_segmentation(tiles, markers=[3,10], resolution=res, min_area=min_area, flipax=[])
         def filter_wrapper(tiles, elevs):
             return raster_ops.border_filtering(tiles, elevs, flipax=[])
 
         elev_copy = onedem.elevation.data # should return a dask array
         for ax in flipax:
             elev_copy = da.flip(elev_copy, axis=ax)
-        # print(type(elev_copy))
+        # import matplotlib.pyplot as plt
+        # print(plt.imshow(elev_copy))
 
         elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
         seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, trim=False) # including depth=10 here will ADD another overlap
-        print("Got labeled raster of potential icebergs for an image")
         labeled_overlap = da.map_overlap(filter_wrapper, seglabeled_overlap, elev_overlap, trim=False, dtype='int32')
+        print("Got labeled raster of potential icebergs for an image")
         labeled_arr = da.overlap.trim_overlap(labeled_overlap, depth=10)
         
         # re-flip the labeled_arr so it matches the orientation of the original elev data that's within the xarray
@@ -153,18 +141,14 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             del elev_overlap
             del seglabeled_overlap
             del labeled_overlap
-            # print("deleted the intermediate steps")
         except NameError:
             pass
-
-        # print(da.min(labeled_arr).compute())
-        # print(da.max(labeled_arr).compute())
         
         print("about to get the list of possible bergs")
         print('Please note the transform computation is very application specific (negative y coordinates) and may need generalizing')
         print("this transform computation is particularly sensitive to axis order (y,x) because it is accessed by index number")
 
-        poss_bergs_list = []
+        
         '''
         # I think that by using concatenate=True, it might not actually be using dask for the computation
         
@@ -195,18 +179,13 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             bmax = bmin + chunksz[1][0]
             return (amin, amax, bmin, bmax)
 
-        def get_transform(onedem, chunk0, chunk1):
+        def get_bl_transform(onedem, chunk0, chunk1):
             # order of all inputs (and outputs) should be y, x when axis order is used
             chunksz = (onedem.chunks['y'], onedem.chunks['x'])
             # rasterio_trans = rasterio.transform.guard_transform(onedem.attrs["transform"])
             # print(rasterio_trans)
             ymini, ymaxi, xmini, xmaxi = getpx((chunk0, chunk1), chunksz) 
 
-            # print(chunk0, chunk1)
-            # print(xmini)
-            # print(xmaxi)
-            # print(ymini)
-            # print(ymaxi)
 
             # use rasterio Windows and rioxarray to construct transform
             # https://rasterio.readthedocs.io/en/latest/topics/windowed-rw.html#window-transforms
@@ -214,9 +193,9 @@ def get_poss_bergs_fr_raster(onedem, usedask):
             return onedem.rio.isel_window(chwindow).rio.transform(recalc=True)
         
         @dask.delayed
-        def get_bergs(labeled_blocks, trans):
+        def polyganize_bergs(labeled_blocks, trans):
             
-            print("running the dask delayed function")
+            # print("running the dask delayed function")
             # NOTE: From Don: Originally, onedem was called within the delayed function... 
             # I have a feeling this might have caused onedem to be copied in memory a whole bunch of time
             # Among the x number of workers ...
@@ -229,14 +208,23 @@ def get_poss_bergs_fr_raster(onedem, usedask):
                                 labeled_blocks.astype('int32'), transform=trans))[:-1]
 
         
+        poss_bergs_list = []
         # NOTE: Itertools would flatten the dask delayeds so you don't have a for loop
         # this would make the complexity O(n) rather than O(n^2)
         grid_delayeds = [d for d in it.chain.from_iterable(labeled_arr.to_delayed())]
         for labeled_blocks in grid_delayeds:
             _, chunk0, chunk1 = labeled_blocks.key
-            trans = get_transform(onedem, chunk0, chunk1)
-            piece = get_bergs(labeled_blocks, trans) # If a function already have delayed decorator, don't need it anymore
+            trans = get_bl_transform(onedem, chunk0, chunk1)
+            piece = polyganize_bergs(labeled_blocks, trans) # If a function already have delayed decorator, don't need it anymore
             poss_bergs_list.append(piece)
+
+        # for __, obj in enumerate(labeled_arr.to_delayed()):
+        #     for bl in obj:
+        #         bl_trans = get_bl_trans(onedem, *bl.key)
+        #         piece = polyganize_bergs(bl, bl_trans)
+        #         # piece = dask.delayed(polyganize_bergs)(bl, *bl.key, chunksz)
+        #         poss_bergs_list.append(piece)
+        #         del piece
         
         poss_bergs_list = dask.compute(*poss_bergs_list)
         # tried working with this instead of the for loops above
@@ -250,14 +238,14 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         poss_bergs_gdf = gpd.GeoDataFrame({'geometry':[Polygon(poly) for poly in concat_list]})
 
         # convert to a geodataframe, combine geometries (in case any bergs were on chunk borders), and generate new polygon list
-        print(poss_bergs_gdf)
+        # print(poss_bergs_gdf)
         # print(poss_bergs_gdf.geometry.plot())
         poss_berg_combined = gpd.overlay(poss_bergs_gdf, poss_bergs_gdf, how='union')
         # print(poss_berg_combined)
         # print(poss_berg_combined.geometry.plot())
         poss_bergs = [berg for berg in poss_berg_combined.geometry]
         # print(poss_bergs)
-        print(len(poss_bergs))
+        # print(len(poss_bergs))
 
         try:
             del labeled_arr
@@ -276,6 +264,9 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # print("Note: check for proper orientation of results depending on compute environment. Pangeo results were upside down.")
         elev_copy = np.copy(np.flip(onedem.elevation.values, axis=flipax))
         # flipax=[]
+        # elev_copy = np.copy(onedem.elevation.values)
+        # import matplotlib.pyplot as plt
+        # print(plt.imshow(elev_copy))
         
         # generate a labeled array of potential iceberg features, excluding those that are too large or small
         seglabeled_arr = raster_ops.labeled_from_segmentation(elev_copy, [3,10], resolution=res, min_area=min_area, flipax=[])
@@ -284,8 +275,8 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         labeled_arr = raster_ops.border_filtering(seglabeled_arr, elev_copy, flipax=[]).astype(seglabeled_arr.dtype)
         # apparently rasterio can't handle int64 inputs, which is what border_filtering returns   
 
-        # import matplotlib.pyplot as plt
-        # print(plt.imshow(labeled_arr))
+        import matplotlib.pyplot as plt
+        print(plt.imshow(labeled_arr))
         # create iceberg polygons
         # somehow a < 1 pixel berg made it into this list... I'm doing a secondary filtering by area in the iceberg filter step for now
         poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=onedem.attrs['transform']))[:-1]
@@ -377,7 +368,8 @@ def filter_pot_bergs(poss_bergs, onedem):
 
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
-        print(onedem.rio._internal_bounds())
+        # print(onedem.rio._internal_bounds())
+        # berg_dem = onedem['elevation']
         bound_box = origberg.bounds
         try: berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
         except NoDataInBounds:
@@ -429,7 +421,8 @@ def filter_pot_bergs(poss_bergs, onedem):
         slvals = berg_dem.rio.clip([slberg], crs=onedem.attrs['crs']).values.flatten()
         slvals=slvals[~np.isnan(slvals)]
 
-        sea = [val for val in slvals if val not in orig_vals]
+        # sea = [val for val in slvals if val not in orig_vals]
+        sea = np.setdiff1d(slvals, orig_vals)
         # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
         sl_adj = np.nanmedian(sea)
         # print(sl_adj)
@@ -451,5 +444,3 @@ def filter_pot_bergs(poss_bergs, onedem):
     print(len(bergs))
 
     return bergs, elevs, sl_adjs
-
-    
