@@ -83,7 +83,7 @@ def gdf_of_bergs(onedem, usedask=True):
     
     # add values that are same for all icebergs in DEM
     names = ['fjord', 'date', 'tidal_ht_offset', 'tidal_ht_min', 'tidal_ht_max']
-    col_val = [onedem.attrs['fjord'], onedem['dtime'].values, onedem['tidal_corr'].item(), onedem['min_tidal_ht'].item(), onedem['max_tidal_ht'].item()]
+    col_val = [onedem.attrs['fjord'], onedem['dtime'].values, onedem['tidal_corr'].values, onedem['min_tidal_ht'].values, onedem['max_tidal_ht'].values]
     
     for name,val in (zip(names,col_val)):
         temp_berg_df[name] = val
@@ -316,28 +316,31 @@ def filter_pot_bergs(poss_bergs, onedem):
     minfree = fjord_props.get_min_freeboard(fjord)
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
 
+    #DELETE
+    # berg_gdf_bounds = gpd.GeoDataFrame({'berg_poly':poss_bergs}, geometry='berg_poly').total_bounds
+    # print(berg_gdf_bounds)
+    # berg_dem = onedem['elevation'].rio.slice_xy(*berg_gdf_bounds).chunk({'x': 1024, 'y':1024})
+    # del berg_gdf_bounds
+
+    poss_gdf = gpd.GeoDataFrame({'origberg': [Polygon(berg) for berg in poss_bergs]}, geometry='origberg')
+    print(len(poss_gdf))
+    # print(poss_gdf)
+    poss_gdf = poss_gdf[~poss_gdf.origberg.is_empty]
+    poss_gdf = poss_gdf[poss_gdf.origberg.is_valid]
+    print(len(poss_gdf))
+    # print(poss_gdf)
+
     # 10 pixel buffer
     buffer = 10 * res
+    
+    poss_gdf['berg'] = poss_gdf.geometry.buffer(-buffer)
+    # print(poss_gdf)
 
-    for berg in poss_bergs:
-        # make a valid shapely Polygon of the berg vertices
-        # print(berg)
-        origberg = Polygon(berg)
-        # print('got a new iceberg')
-
-        if origberg.is_valid == False or origberg.is_empty == True:
-            # print("invalid or empty berg geometry")
-            continue
-
-        # create a negatively buffered berg outline to exclude border/water pixels
-        berg = origberg.buffer(-buffer)
-        if berg.is_valid == False or berg.is_empty == True:
-            # print("invalid buffered inner-berg geometry")
-            continue
-
-        # get the largest polygon from a multipolygon (if one was created during buffering)
-        if berg.geom_type == 'MultiPolygon':
-            subbergs = list(berg)
+    # get the largest polygon from a multipolygon (if one was created during buffering)
+    def get_largest_from_multi(multipolygons):
+        bergs = []
+        for multipolygon in multipolygons:
+            subbergs = list(multipolygon)
             area = []
             for sb in subbergs:
                 sb = Polygon(sb)
@@ -345,42 +348,165 @@ def filter_pot_bergs(poss_bergs, onedem):
             # print(area)
             idx = np.where(area == np.nanmax(area))[0]
             berg = Polygon(subbergs[idx[0]])
-            # print('tried to trim down a multipolygon')
-        
-        if berg.is_valid == False:
-            # print("invalid buffered multipology extraction")
-            continue
+            bergs.append(berg)
+        return bergs
 
-        # remove holes
-        if berg.interiors:
-            berg = Polygon(list(berg.exterior.coords))
-            # print('removed some holes')
-        
-        if berg.is_valid == False:
-            # print("invalid buffered interiors geometry")
-            continue
+    poss_multis = (poss_gdf.berg.geom_type == "MultiPolygon")
+    poss_gdf.loc[poss_multis, 'berg'] = get_largest_from_multi(poss_gdf[poss_multis].berg)
+    del poss_multis
 
-        # get the polygon complexity and skip if it's above the threshold
-        complexity = vector_ops.poly_complexity(berg)
-        if complexity >= 0.07:
-            # print('border too complex. Removing...')
-            continue
+    print(len(poss_gdf))
+    poss_ints = ([len(interior) > 0 for interior in poss_gdf.berg.interiors])
+    poss_gdf.loc[poss_ints, 'berg'] = [Polygon(list(getcoords.exterior.coords)) for getcoords in poss_gdf[poss_ints].berg]
+    del poss_ints
+    print(len(poss_gdf))
+
+    poss_gdf = poss_gdf[~poss_gdf.berg.is_empty]
+    poss_gdf = poss_gdf[poss_gdf.berg.is_valid]
+    print(len(poss_gdf))
+
+    poss_gdf['complexity'] = [vector_ops.poly_complexity(oneberg) for oneberg in poss_gdf.berg]
+    poss_gdf = poss_gdf[poss_gdf.complexity < 0.07]
+    print(len(poss_gdf))
+    # poss_gdf = poss_gdf.drop("complexity") --> "complexity" not found in index error
+
+    poss_gdf = poss_gdf.reset_index().drop(columns=["index", "complexity"])
+    # print(poss_gdf)
+
+    # onedem = onedem.chunk({'x': 1024, 'y':1024})
+
+    from geocube.api.core import make_geocube
+    
+    poss_gdf['bergkey'] = poss_gdf.index.astype(int)
+    poss_gdf["geometry"] = poss_gdf.origberg
+
+    gdf_grid = make_geocube(vector_data=poss_gdf,
+                        measurements=["bergkey"],
+                        like=onedem,
+                        fill=np.nan
+                        )
+
+    
+    # print(gdf_grid)
+    # print(onedem.reset_coords(drop=True))
+    gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
+    # meas["lab_bergs"] = gdf_grid.bergkey
+    # meas = meas.squeeze(drop=True)
+    gdf_grid = gdf_grid.chunk({'x': 1024, 'y':1024})
+    grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
+    
+    def getvals_wrapper(gb, axis=0):
+        """
+        Groupby wrapper to apply a nanmedian to a dask array (not sure how it will
+        behave if a non-dask array is input). Getting here was a challenge, as using
+        grouped.median() in just about any form resulted in a not-implemented error
+        (even when axis arguments were passed), despite the existance of median methods
+        for both dask arrays and groupby objects.
+        In my exploration, I ran the geocube example: https://corteva.github.io/geocube/stable/examples/grid_to_vector_map.html
+        which promptly fails if you chunk the xarray dataset (i.e. use a dask array).
+        Stacking dimensions, or manually specifying the stacked dimension created by the groupby,
+        seemed to have no effect.
+        Turns out there are a few related issues, too: https://nbviewer.jupyter.org/gist/rabernat/30e7b747f0e3583b5b776e4093266114
+        Many of them are still open...
+        """
+        # darray = gb.elev.data
+        # med = da.nanmedian(darray, 0).compute()
+        # # gb['medvals'] = med
+        # gb = gb.assign(medvals = ("bergkey", [med]))
+        # gb = gb.assign(medvals = ("bergkey", med))
+        med = da.nanmedian(gb, axis=0).compute()
+        return med
+    
+    grouped_med = grouped.reduce(getvals_wrapper).rename({"elev":"medvals"})
+    
+    # print(gdf_grid)
+
+    # stacked = gdf_grid.drop("spatial_ref") #.stack(grids=['x','y'])
+    # print(stacked)
+    # grouped = stacked.groupby("bergkey")
+    # grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
+    # print(grouped)
+    # print(type(grouped))
+    # grouped_med = grouped.median().rename({"elev":"medvals"})
+    # print(grouped_med)
+    # print(len(grouped_med))
+    print(grouped_med.to_dataframe())
+
+    poss_gdf = poss_gdf.join(grouped_med.to_dataframe().drop(columns=["spatial_ref"])[['medvals']], on="bergkey", how="left")
+
+    print(poss_gdf.medvals)
+    print(poss_gdf)
+    poss_gdf = poss_gdf[poss_gdf.medvals < max_freebd]
+
+    print(len(poss_gdf))
+    print(poss_gdf)
+
+
+    
+    for origberg, berg in zip(poss_gdf['origberg'], poss_gdf['berg']):
+    # for berg in poss_bergs:
+    #     # make a valid shapely Polygon of the berg vertices
+    #     # print(berg)
+    #     origberg = Polygon(berg)
+    #     # print('got a new iceberg')
+
+    #     if origberg.is_valid == False or origberg.is_empty == True:
+    #         # print("invalid or empty berg geometry")
+    #         continue
+
+    #     # create a negatively buffered berg outline to exclude border/water pixels
+    #     berg = origberg.buffer(-buffer)
+    #     if berg.is_valid == False or berg.is_empty == True:
+    #         # print("invalid buffered inner-berg geometry")
+    #         continue
+
+        # # get the largest polygon from a multipolygon (if one was created during buffering)
+        # if berg.geom_type == 'MultiPolygon':
+        #     subbergs = list(berg)
+        #     area = []
+        #     for sb in subbergs:
+        #         sb = Polygon(sb)
+        #         area.append(sb.area)
+        #     # print(area)
+        #     idx = np.where(area == np.nanmax(area))[0]
+        #     berg = Polygon(subbergs[idx[0]])
+        #     # print('tried to trim down a multipolygon')
+        
+        # if berg.is_valid == False:
+        #     # print("invalid buffered multipologon extraction")
+        #     continue
+
+        # # remove holes
+        # if berg.interiors:
+        #     berg = Polygon(list(berg.exterior.coords))
+        #     # print('removed some holes')
+        
+        # if berg.is_valid == False:
+        #     # print("invalid buffered interiors geometry")
+        #     continue
+
+        # # get the polygon complexity and skip if it's above the threshold
+        # complexity = vector_ops.poly_complexity(berg)
+        # if complexity >= 0.07:
+        #     # print('border too complex. Removing...')
+        #     continue
 
         # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
         # bounds: (minx, miny, maxx, maxy)
         # print(onedem.rio._internal_bounds())
         # berg_dem = onedem['elevation']
         bound_box = origberg.bounds
-        try: berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
+        try: berg_dem = onedem.rio.slice_xy(*bound_box)
         except NoDataInBounds:
             coords = ('x','y','x','y')
             exbound_box = []
             for a, b in zip(bound_box, coords):
                 exbound_box.append(getexval(onedem[b], b, a))
-            berg_dem = onedem['elevation'].rio.slice_xy(*exbound_box)
+            berg_dem = onedem.rio.slice_xy(*exbound_box)
             if np.all(np.isnan(berg_dem.values)):
                 print("all nan area - no actual berg")
                 continue
+
 
         # berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
         #                                 # y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo? May have been because of issues with applying transform to right-side-up image above?
