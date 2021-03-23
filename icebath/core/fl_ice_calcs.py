@@ -1,6 +1,7 @@
 import datetime as dt
 import holoviews as hv
 import numpy as np
+import pandas as pd
 import scipy.stats as stats
 
 from icebath.core import fjord_props
@@ -39,6 +40,9 @@ def apply_decrease_offset(draft, offset):
     """
     if np.isnan(offset):
         offset=0
+
+    # if type(draft) == pd.core.series.Series:
+    #     draft = draft.values
     corr_draft = draft - offset
     return corr_draft
 

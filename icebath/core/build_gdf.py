@@ -308,10 +308,6 @@ def filter_pot_bergs(poss_bergs, onedem):
     poss_bergs : list of potential iceberg geometries
     """
 
-    # bergs = []
-    # elevs = []
-    # sl_adjs = []
-
     fjord = onedem.attrs['fjord']
     max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
     minfree = fjord_props.get_min_freeboard(fjord)
@@ -325,14 +321,9 @@ def filter_pot_bergs(poss_bergs, onedem):
         except KeyError:
             print("Your input DEM does not have a CRS attribute")
 
-    #DELETE
-    # berg_gdf_bounds = gpd.GeoDataFrame({'berg_poly':poss_bergs}, geometry='berg_poly').total_bounds
-    # print(berg_gdf_bounds)
-    # berg_dem = onedem['elevation'].rio.slice_xy(*berg_gdf_bounds).chunk({'x': 1024, 'y':1024})
-    # del berg_gdf_bounds
 
     poss_gdf = gpd.GeoDataFrame({'origberg': [Polygon(berg) for berg in poss_bergs]}, geometry='origberg')
-    poss_gdf.set_crs(crs)
+    poss_gdf = poss_gdf.set_crs(crs)
     print("Potential icebergs found: " + str(len(poss_gdf)))
 
     # remove empty or invalid geometries
@@ -381,7 +372,16 @@ def filter_pot_bergs(poss_bergs, onedem):
     print("Potential icebergs after complex ones removed: " + str(len(poss_gdf)))
     poss_gdf = poss_gdf.reset_index().drop(columns=["index", "complexity"])
 
-    # onedem = onedem.chunk({'x': 1024, 'y':1024})
+    total_bounds = poss_gdf.total_bounds
+    try: onedem = onedem.rio.slice_xy(*total_bounds)
+    except NoDataInBounds:
+        coords = ('x','y','x','y')
+        exbound_box = []
+        for a, b in zip(total_bounds, coords):
+            exbound_box.append(getexval(onedem[b], b, a))
+        onedem = onedem['elevation'].rio.slice_xy(*exbound_box)
+    onedem = onedem.chunk({'x': 1024, 'y':1024})
+    # onedem = onedem.rio.clip_box(*total_bounds).chunk({'x': 1024, 'y':1024})
 
     # rasterize the icebergs and extract the median of the elevation pixel values
     poss_gdf['bergkey'] = poss_gdf.index.astype(int)
@@ -422,12 +422,82 @@ def filter_pot_bergs(poss_bergs, onedem):
 
     # skip bergs that returned all nan elevation values (and thus a nan median value)
     poss_gdf = poss_gdf[poss_gdf != np.nan]
-    print(len(poss_gdf))
+    # print(len(poss_gdf))
 
     # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
     poss_gdf = poss_gdf[poss_gdf['freeboardmed'] < max_freebd] # units in meters, matching those of the DEM elevation
     print("Potential icebergs after too-tall ones removed: " + str(len(poss_gdf)))
     # print(poss_gdf)
+
+    # get the regional elevation values and use to determine the sea level adjustment
+    def get_sl_poly(origberg):
+        """
+        Create a polygon (with a hole) for getting pixels to use for the sea level adjustment
+        """
+        # outer extent of ocean pixels used
+        outer = list(origberg.buffer(2*buffer).exterior.coords)
+        # inner extent of ocean pixels used
+        inner = list(origberg.buffer(buffer).exterior.coords)
+        return Polygon(outer, holes=[inner])
+
+    poss_gdf['sl_aroundberg'] = poss_gdf.origberg.apply(get_sl_poly)
+    
+    def get_sl_adj(sl_aroundberg):
+        """
+        Clip the polygon from the elevation DEM and get the pixel values.
+        Compute the sea level offset
+        """
+        slvals = onedem.elevation.rio.clip([sl_aroundberg], crs=onedem.attrs['crs']).values.flatten() #from_disk=True
+
+        # try:
+        #     vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
+        # except NoDataInBounds:
+        #     if berg.area < (res**2.0) * 10.0:
+        #         continue
+        #     # vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs'], all_touched=True).values.flatten()
+
+        sl_adj = np.nanmedian(slvals)
+        return sl_adj
+    # print(onedem)
+    onedem['elevation'] = onedem.elevation.rio.write_crs(onedem.attrs['crs'], inplace=True)
+    # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
+    poss_gdf["sl_adj"] = poss_gdf.sl_aroundberg.apply(get_sl_adj)
+
+    # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
+    poss_gdf = poss_gdf[abs(poss_gdf.freeboardmed - poss_gdf.sl_adj) > minfree]
+    print("Potential icebergs after too small ones removed: " + str(len(poss_gdf)))
+
+    # get the buffered iceberg elevation values for computing draft
+    # poss_gdf['bergkey'] = poss_gdf.index.astype(int)
+    poss_gdf["geometry"] = poss_gdf.berg
+    gdf_grid = make_geocube(vector_data=poss_gdf,
+                        measurements=["bergkey"],
+                        like=onedem,
+                        fill=np.nan
+                        )
+
+    gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
+    grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
+
+    poss_gdf["elevs"] = '' # so that it's object type, not int, for a variable length array
+    for key, vals in grouped:
+        pxvals = vals.elev.values
+        pxvals = pxvals[~np.isnan(pxvals)]
+        # apply the sea level adjustment to the elevation values
+        pxvals = icalcs.apply_decrease_offset(pxvals, poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==0].index[0], "sl_adj"])
+        poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = pxvals
+
+    del gdf_grid
+
+    print("Final icebergs for estimating water depths: " + str(len(poss_gdf)))
+
+    return poss_gdf.berg, poss_gdf.elevs, poss_gdf.sl_adj
+
+
+    '''
+    Try using geocube to get sea level adjustments more efficiently.
+    An issue arises when the icebergs are close together enough that their buffers overlap.
+    Then, they can't have multiple key values, creating issues with getting the correct sea level adjustments.
 
     # get the values to compute the sea level offset
     poss_gdf['bergkey'] = poss_gdf.index.astype(int)
@@ -460,57 +530,4 @@ def filter_pot_bergs(poss_bergs, onedem):
         poss_gdf.loc[poss_gdf["bergkey"]==key, "sl_adj"] = np.nanmedian(vals.elevation)
     del slberg_inner_grid
     del slberg_outer_grid
-
-    # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
-    print(poss_gdf.sl_adj)
-    print(poss_gdf.dtypes)
-    # poss_gdf = poss_gdf.astype({"sl_adj":"float32"})
-    poss_gdf = poss_gdf[abs(poss_gdf.freeboardmed - poss_gdf.sl_adj) > minfree]
-    print("Potential icebergs after too small ones removed: " + str(len(poss_gdf)))
-
-    # get the buffered iceberg elevation values for computing draft
-    # poss_gdf['bergkey'] = poss_gdf.index.astype(int)
-    poss_gdf["geometry"] = poss_gdf.berg
-    gdf_grid = make_geocube(vector_data=poss_gdf,
-                        measurements=["bergkey"],
-                        like=onedem,
-                        fill=np.nan
-                        )
-
-    gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
-    grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
-
-    poss_gdf["elevs"] = [0] * len(poss_gdf.index)
-    for key, vals in grouped:
-        vals = vals[~np.isnan(vals.elevation)]
-        poss_gdf.loc[poss_gdf["bergkey"]==key, "elevs"] = vals
-    del gdf_grid
-
-    print(len(poss_gdf))
-
-    return poss_gdf.berg, poss_gdf.elevs, poss_gdf.sl_adj
-
-    # # for origberg, berg in zip(poss_gdf['origberg'], poss_gdf['berg']):
-
-    #     # try:
-    #     #     vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
-    #     # except NoDataInBounds:
-    #     #     if berg.area < (res**2.0) * 10.0:
-    #     #         continue
-    #     #     # vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs'], all_touched=True).values.flatten()
-
-    #     # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
-    #     vals = vals[~np.isnan(vals)]
-    #     # print(vals)
-
-
-    #     # apply the sea level adjustment to the elevation values
-    #     vals = icalcs.apply_decrease_offset(vals, sl_adj)        
-        
-    #     bergs.append(berg)
-    #     elevs.append(vals)
-    #     sl_adjs.append(sl_adj)
-    
-    # print(len(bergs))
-
-    # return bergs, elevs, sl_adjs
+    '''
