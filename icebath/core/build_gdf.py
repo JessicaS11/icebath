@@ -2,8 +2,9 @@ import datetime as dt
 import dask
 import dask.array as da
 import numpy as np
-import os
+from geocube.api.core import make_geocube
 import geopandas as gpd
+import os
 import pandas as pd
 import rasterio
 import rioxarray
@@ -52,7 +53,7 @@ def gdf_of_bergs(onedem, usedask=True):
 
     # process the raster and polygonize the potential icebergs
     poss_bergs = get_poss_bergs_fr_raster(onedem, usedask)
-    print(len(poss_bergs))
+    # print(len(poss_bergs))
 
     # Exclude icebergs that don't meet the requirements
     bergs, elevs, sl_adjs = filter_pot_bergs(poss_bergs, onedem)
@@ -83,7 +84,7 @@ def gdf_of_bergs(onedem, usedask=True):
     
     # add values that are same for all icebergs in DEM
     names = ['fjord', 'date', 'tidal_ht_offset', 'tidal_ht_min', 'tidal_ht_max']
-    col_val = [onedem.attrs['fjord'], onedem['dtime'].values, onedem['tidal_corr'].item(), onedem['min_tidal_ht'].item(), onedem['max_tidal_ht'].item()]
+    col_val = [onedem.attrs['fjord'], onedem['dtime'].values, onedem['tidal_corr'].values, onedem['min_tidal_ht'].values, onedem['max_tidal_ht'].values]
     
     for name,val in (zip(names,col_val)):
         temp_berg_df[name] = val
@@ -307,37 +308,40 @@ def filter_pot_bergs(poss_bergs, onedem):
     poss_bergs : list of potential iceberg geometries
     """
 
-    bergs = []
-    elevs = []
-    sl_adjs = []
-
     fjord = onedem.attrs['fjord']
     max_freebd = fjord_props.get_ice_thickness(fjord)/10.0
     minfree = fjord_props.get_min_freeboard(fjord)
     res = onedem.attrs['res'][0] #Note: the pixel area will be inaccurate if the resolution is not the same in x and y
 
+    try:
+        crs = onedem.attrs['crs']
+    except KeyError:
+        try:
+            crs = onedem.attrs['proj4']
+        except KeyError:
+            print("Your input DEM does not have a CRS attribute")
+
+
+    poss_gdf = gpd.GeoDataFrame({'origberg': [Polygon(berg) for berg in poss_bergs]}, geometry='origberg')
+    poss_gdf = poss_gdf.set_crs(crs)
+    print("Potential icebergs found: " + str(len(poss_gdf)))
+
+    # remove empty or invalid geometries
+    poss_gdf = poss_gdf[~poss_gdf.origberg.is_empty]
+    poss_gdf = poss_gdf[poss_gdf.origberg.is_valid]
+    # print(len(poss_gdf))
+
     # 10 pixel buffer
     buffer = 10 * res
 
-    for berg in poss_bergs:
-        # make a valid shapely Polygon of the berg vertices
-        # print(berg)
-        origberg = Polygon(berg)
-        # print('got a new iceberg')
+    # create a negatively buffered berg outline to exclude border/water pixels
+    poss_gdf['berg'] = poss_gdf.origberg.buffer(-buffer)
 
-        if origberg.is_valid == False or origberg.is_empty == True:
-            # print("invalid or empty berg geometry")
-            continue
-
-        # create a negatively buffered berg outline to exclude border/water pixels
-        berg = origberg.buffer(-buffer)
-        if berg.is_valid == False or berg.is_empty == True:
-            # print("invalid buffered inner-berg geometry")
-            continue
-
-        # get the largest polygon from a multipolygon (if one was created during buffering)
-        if berg.geom_type == 'MultiPolygon':
-            subbergs = list(berg)
+    # get the largest polygon from a multipolygon (if one was created during buffering)
+    def get_largest_from_multi(multipolygons):
+        bergs = []
+        for multipolygon in multipolygons:
+            subbergs = list(multipolygon)
             area = []
             for sb in subbergs:
                 sb = Polygon(sb)
@@ -345,102 +349,185 @@ def filter_pot_bergs(poss_bergs, onedem):
             # print(area)
             idx = np.where(area == np.nanmax(area))[0]
             berg = Polygon(subbergs[idx[0]])
-            # print('tried to trim down a multipolygon')
-        
-        if berg.is_valid == False:
-            # print("invalid buffered multipology extraction")
-            continue
+            bergs.append(berg)
+        return bergs
 
-        # remove holes
-        if berg.interiors:
-            berg = Polygon(list(berg.exterior.coords))
-            # print('removed some holes')
-        
-        if berg.is_valid == False:
-            # print("invalid buffered interiors geometry")
-            continue
+    poss_multis = (poss_gdf.berg.geom_type == "MultiPolygon")
+    poss_gdf.loc[poss_multis, 'berg'] = get_largest_from_multi(poss_gdf[poss_multis].berg)
+    del poss_multis
+    # print(len(poss_gdf))
 
-        # get the polygon complexity and skip if it's above the threshold
-        complexity = vector_ops.poly_complexity(berg)
-        if complexity >= 0.07:
-            # print('border too complex. Removing...')
-            continue
+    # remove holes, where present in buffered polygons
+    poss_ints = ([len(interior) > 0 for interior in poss_gdf.berg.interiors])
+    poss_gdf.loc[poss_ints, 'berg'] = [Polygon(list(getcoords.exterior.coords)) for getcoords in poss_gdf[poss_ints].berg]
+    del poss_ints
 
-        # get the subset (based on a buffered bounding box) of the DEM that contains the iceberg
-        # bounds: (minx, miny, maxx, maxy)
-        # print(onedem.rio._internal_bounds())
-        # berg_dem = onedem['elevation']
-        bound_box = origberg.bounds
-        try: berg_dem = onedem['elevation'].rio.slice_xy(*bound_box)
-        except NoDataInBounds:
-            coords = ('x','y','x','y')
-            exbound_box = []
-            for a, b in zip(bound_box, coords):
-                exbound_box.append(getexval(onedem[b], b, a))
-            berg_dem = onedem['elevation'].rio.slice_xy(*exbound_box)
-            if np.all(np.isnan(berg_dem.values)):
-                print("all nan area - no actual berg")
-                continue
+    poss_gdf = poss_gdf[~poss_gdf.berg.is_empty]
+    poss_gdf = poss_gdf[poss_gdf.berg.is_valid]
+    # print("Potential icebergs after buffering and invalid, multi, and interior polygons removed: " + str(len(poss_gdf)))
 
-        # berg_dem = onedem['elevation'].sel(x=slice(bound_box[0]-buffer, bound_box[2]+buffer),
-        #                                 # y=slice(bound_box[3]+buffer, bound_box[1]-buffer)) # pangeo? May have been because of issues with applying transform to right-side-up image above?
-                                        # y=slice(bound_box[1]-buffer, bound_box[3]+buffer)) # my comp
-        
-        # print(bound_box)
-        # print(np.shape(berg_dem))
-        # print(berg_dem)
-        # print(berg_dem.elevation.values)
+    # get the polygon complexity and remove if it's above the threshold
+    poss_gdf['complexity'] = [vector_ops.poly_complexity(oneberg) for oneberg in poss_gdf.berg]
+    poss_gdf = poss_gdf[poss_gdf.complexity < 0.07]
+    print("Potential icebergs after complex ones removed: " + str(len(poss_gdf)))
+    poss_gdf = poss_gdf.reset_index().drop(columns=["index", "complexity"])
 
-        # extract the iceberg elevation values
-        # Note: rioxarray does not carry crs info from the dataset to individual variables
-        # print(berg)
-        # print(len(bergs))
-        # print(berg.area)
-        try:
-            vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
-        except NoDataInBounds:
-            if berg.area < (res**2.0) * 10.0:
-                continue
-            # vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs'], all_touched=True).values.flatten()
+    total_bounds = poss_gdf.total_bounds
+    try: onedem = onedem.rio.slice_xy(*total_bounds)
+    except NoDataInBounds:
+        coords = ('x','y','x','y')
+        exbound_box = []
+        for a, b in zip(total_bounds, coords):
+            exbound_box.append(getexval(onedem[b], b, a))
+        onedem = onedem['elevation'].rio.slice_xy(*exbound_box)
+    onedem = onedem.chunk({'x': 1024, 'y':1024})
+    # onedem = onedem.rio.clip_box(*total_bounds).chunk({'x': 1024, 'y':1024})
 
-        # remove nans because causing all kinds of issues down the processing pipeline (returning nan as a result and converting entire array to nan)
-        vals = vals[~np.isnan(vals)]
-        # print(vals)
+    # rasterize the icebergs and extract the median of the elevation pixel values
+    poss_gdf['bergkey'] = poss_gdf.index.astype(int)
+    poss_gdf["geometry"] = poss_gdf.berg
 
-        # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
-        if np.nanmedian(vals) > max_freebd:  # units in meters, matching those of the DEM elevation
-            # print('"iceberg" too tall. Removing...')
-            continue
+    gdf_grid = make_geocube(vector_data=poss_gdf,
+                        measurements=["bergkey"],
+                        like=onedem,
+                        fill=np.nan
+                        )
 
-        # get the pixel values for the original berg extent and a buffered version for the sea level adjustment
-        orig_vals = berg_dem.rio.clip([origberg], crs=onedem.attrs['crs']).values.flatten()       
-        orig_vals = orig_vals[~np.isnan(orig_vals)]
-
-        slberg = origberg.buffer(buffer) # get geometry bordering iceberg for sea level adjustment
-        # get the regional elevation values and use to determine the sea level adjustment
-        slvals = berg_dem.rio.clip([slberg], crs=onedem.attrs['crs']).values.flatten()
-        slvals=slvals[~np.isnan(slvals)]
-
-        # sea = [val for val in slvals if val not in orig_vals]
-        sea = np.setdiff1d(slvals, orig_vals)
-        # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
-        sl_adj = np.nanmedian(sea)
-        # print(sl_adj)
-        
-        # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
-        if abs(np.nanmedian(vals)-sl_adj) < minfree:
-            # print(np.nanmedian(vals))
-            # print(sl_adj)
-            print('median iceberg freeboard less than ' +  str(minfree) +' m')
-            continue
-
-        # apply the sea level adjustment to the elevation values
-        vals = icalcs.apply_decrease_offset(vals, sl_adj)        
-        
-        bergs.append(berg)
-        elevs.append(vals)
-        sl_adjs.append(sl_adj)
+    # print(gdf_grid)
+    gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
+    gdf_grid = gdf_grid.chunk({'x': 1024, 'y':1024}) # play with this to see if it makes a difference?
+    grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
     
-    print(len(bergs))
+    def nanmedian_wrapper(gb, axis=0):
+        """
+        Groupby wrapper to apply a nanmedian to a dask array (not sure how it will
+        behave if a non-dask array is input). Getting here was a challenge, as using
+        grouped.median() in just about any form resulted in a not-implemented error
+        (even when axis arguments were passed), despite the existance of median methods
+        for both dask arrays and groupby objects.
+        In my exploration, I ran the geocube example: https://corteva.github.io/geocube/stable/examples/grid_to_vector_map.html
+        which promptly fails if you chunk the xarray dataset (i.e. use a dask array).
+        Stacking dimensions, or manually specifying the stacked dimension created by the groupby,
+        seemed to have no effect.
+        Turns out there are a few related issues, too: https://nbviewer.jupyter.org/gist/rabernat/30e7b747f0e3583b5b776e4093266114
+        Many of them are still open...
+        """
 
-    return bergs, elevs, sl_adjs
+        med = da.nanmedian(gb, axis=0).compute()
+        return med
+    
+    grouped_med = grouped.reduce(nanmedian_wrapper).rename({"elev":"freeboardmed"})
+    poss_gdf = poss_gdf.join(grouped_med.to_dataframe().drop(columns=["spatial_ref"])[['freeboardmed']], on="bergkey", how="left")
+    del gdf_grid
+
+    # skip bergs that returned all nan elevation values (and thus a nan median value)
+    poss_gdf = poss_gdf[poss_gdf != np.nan]
+    # print(len(poss_gdf))
+
+    # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
+    poss_gdf = poss_gdf[poss_gdf['freeboardmed'] < max_freebd] # units in meters, matching those of the DEM elevation
+    print("Potential icebergs after too-tall ones removed: " + str(len(poss_gdf)))
+    # print(poss_gdf)
+
+    # get the regional elevation values and use to determine the sea level adjustment
+    def get_sl_poly(origberg):
+        """
+        Create a polygon (with a hole) for getting pixels to use for the sea level adjustment
+        """
+        # outer extent of ocean pixels used
+        outer = list(origberg.buffer(2*buffer).exterior.coords)
+        # inner extent of ocean pixels used
+        inner = list(origberg.buffer(buffer).exterior.coords)
+        return Polygon(outer, holes=[inner])
+
+    poss_gdf['sl_aroundberg'] = poss_gdf.origberg.apply(get_sl_poly)
+    
+    def get_sl_adj(sl_aroundberg):
+        """
+        Clip the polygon from the elevation DEM and get the pixel values.
+        Compute the sea level offset
+        """
+        slvals = onedem.elevation.rio.clip([sl_aroundberg], crs=onedem.attrs['crs']).values.flatten() #from_disk=True
+
+        # try:
+        #     vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
+        # except NoDataInBounds:
+        #     if berg.area < (res**2.0) * 10.0:
+        #         continue
+        #     # vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs'], all_touched=True).values.flatten()
+
+        sl_adj = np.nanmedian(slvals)
+        return sl_adj
+    # print(onedem)
+    onedem['elevation'] = onedem.elevation.rio.write_crs(onedem.attrs['crs'], inplace=True)
+    # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
+    poss_gdf["sl_adj"] = poss_gdf.sl_aroundberg.apply(get_sl_adj)
+
+    # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
+    poss_gdf = poss_gdf[abs(poss_gdf.freeboardmed - poss_gdf.sl_adj) > minfree]
+    print("Potential icebergs after too small ones removed: " + str(len(poss_gdf)))
+
+    # get the buffered iceberg elevation values for computing draft
+    # poss_gdf['bergkey'] = poss_gdf.index.astype(int)
+    poss_gdf["geometry"] = poss_gdf.berg
+    gdf_grid = make_geocube(vector_data=poss_gdf,
+                        measurements=["bergkey"],
+                        like=onedem,
+                        fill=np.nan
+                        )
+
+    gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
+    grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
+
+    poss_gdf["elevs"] = '' # so that it's object type, not int, for a variable length array
+    for key, vals in grouped:
+        pxvals = vals.elev.values
+        pxvals = pxvals[~np.isnan(pxvals)]
+        # apply the sea level adjustment to the elevation values
+        pxvals = icalcs.apply_decrease_offset(pxvals, poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==0].index[0], "sl_adj"])
+        poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = pxvals
+
+    del gdf_grid
+
+    print("Final icebergs for estimating water depths: " + str(len(poss_gdf)))
+
+    return poss_gdf.berg, poss_gdf.elevs, poss_gdf.sl_adj
+
+
+    '''
+    Try using geocube to get sea level adjustments more efficiently.
+    An issue arises when the icebergs are close together enough that their buffers overlap.
+    Then, they can't have multiple key values, creating issues with getting the correct sea level adjustments.
+
+    # get the values to compute the sea level offset
+    poss_gdf['bergkey'] = poss_gdf.index.astype(int)
+    
+    # get geometry bordering iceberg for sea level adjustment
+    poss_gdf['slberg_inner'] = poss_gdf.origberg.buffer(buffer)
+    # get the regional elevation values and use to determine the sea level adjustment
+    poss_gdf['slberg_outer'] = poss_gdf.origberg.buffer(2*buffer)
+    
+    poss_gdf["geometry"] = poss_gdf.slberg_inner
+    slberg_inner_grid = make_geocube(vector_data=poss_gdf,
+                        measurements=["bergkey"],
+                        like=onedem,
+                        fill=np.nan
+                        )
+
+    poss_gdf["geometry"] = poss_gdf.slberg_outer
+    slberg_outer_grid = make_geocube(vector_data=poss_gdf,
+                        measurements=["bergkey"],
+                        like=onedem,
+                        fill=np.nan
+                        )
+
+    onedem["sl_keys"] = slberg_outer_grid["bergkey"] - slberg_inner_grid["bergkey"]
+    grouped = onedem.reset_coords(drop=True).groupby("sl_keys") #.drop("spatial_ref") is dropped as a non-dim coord
+    
+    # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
+    poss_gdf["sl_adj"] = [0] * len(poss_gdf.index)
+    for key, vals in grouped:
+        poss_gdf.loc[poss_gdf["bergkey"]==key, "sl_adj"] = np.nanmedian(vals.elevation)
+    del slberg_inner_grid
+    del slberg_outer_grid
+    '''

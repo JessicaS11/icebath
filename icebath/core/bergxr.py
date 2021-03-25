@@ -190,7 +190,7 @@ class BergXR:
             with WarpedVRT(src,resampling=1,src_crs=src.crs,crs=crs) as vrt:
                             # warp_mem_limit=12000,warp_extras={'NUM_THREADS':2}) as vrt:
                 # print('Destination CRS:' +str(vrt.crs))
-                newdset = rioxarray.open_rasterio(vrt).chunk({'x': 1000, 'y': 1000})
+                newdset = rioxarray.open_rasterio(vrt).chunk({'x': 3072, 'y': 3072})
                 # ds = rioxarray.open_rasterio(vrt).chunk({'x':1500,'y':1500,'band':1}).to_dataset(name='HLS_Red')
 
 

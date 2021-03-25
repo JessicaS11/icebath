@@ -21,6 +21,10 @@ def run_workflow(indir, fjord, outdir, outfn, metastr=None, bitmask=False):
         model_path='/Users/jessica/computing/tidal_model_files'
         ds=ds.bergxr.tidal_corr(loc=[ds.attrs["fjord"]], model_path=model_path)
 
+        # try removing some of xarray variables (even though they should only be lazily loaded?)
+        # to free up memory for the next steps
+        ds = ds.drop('geoid')
+
         # print("Going to start getting icebergs")
         gdf = build_gdf.xarray_to_gdf(ds)
         gdf.groupby('date').berg_poly.plot()
@@ -40,6 +44,7 @@ def run_workflow(indir, fjord, outdir, outfn, metastr=None, bitmask=False):
                                     vardict={"bed":"bmach_bed", "errbed":"bmach_errbed", "source":"bmach_source"},
                                     nanval=-9999)
 
+            ds = ds.drop(["bmach_bed","bmach_errbed","bmach_source"])
             measfile2a='/Users/jessica/mapping/datasets/IBCAO_v4_200m_ice_3413_'+ds.attrs['fjord']+'.nc'
             measfile2b='/Users/jessica/mapping/datasets/IBCAO_v4_200m_TID_3413.nc'
             gdf.berggdf.get_meas_wat_depth(ds, measfile2a, 
