@@ -5,6 +5,7 @@ import scipy.stats as stats
 import ogr
 import os
 import fnmatch
+from geocube.api.core import make_geocube
 import geopandas as gpd
 import rioxarray
 from rioxarray.rioxarray import NoDataInBounds
@@ -242,10 +243,84 @@ class BergGDF:
                                                  varname=vardict[key])
             if nanval != None:
                 dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)
+            
+            # self._gdf[vardict[key]] = [0] * len(self._gdf)
                 
-            # Note: rioxarray does not carry crs info from the dataset to individual variables
-            px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
-                                    args=('berg_poly', 
-                                          dataset[vardict[key]]), 
-                                          **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
-            self._gdf[vardict[key]] = px_vals.apply(np.nanmedian)
+            # # Note: rioxarray does not carry crs info from the dataset to individual variables
+            # px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
+            #                         args=('berg_poly', 
+            #                               dataset[vardict[key]]), 
+            #                               **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
+            # self._gdf[vardict[key]] = px_vals.apply(np.nanmedian)
+        
+        if 'bergkey' in dataset.variables:
+            pass
+        else:
+            self._gdf['bergkey'] = self._gdf.index.astype(int)
+            try:
+                self._gdf["geometry"] = self._gdf.berg_poly
+            except AttributeError:
+                pass
+            gdf_grid = make_geocube(vector_data=self._gdf,
+                                measurements=["bergkey"],
+                                like=dataset,
+                                fill=np.nan
+                                )
+            dataset["bergkey"] = gdf_grid["bergkey"]
+            del gdf_grid
+
+
+        for bkey in self._gdf['bergkey']:
+            for key in vardict.keys():
+                print(vardict[key])
+                valmed = np.nanmedian(dataset.where('bergkey'==bkey)[vardict[key]].values)
+                self._gdf.at[self._gdf[self._gdf["bergkey"]==bkey].index[0], vardict[key]] = valmed
+
+
+        """
+        Notes on computing a nanmedian with dask:
+        using .median() in just about any form resulted in a not-implemented error
+        (even when axis arguments were passed), despite the existance of median methods
+        for both dask arrays and groupby objects.
+        In my exploration, I ran the geocube example: https://corteva.github.io/geocube/stable/examples/grid_to_vector_map.html
+        which promptly fails if you chunk the xarray dataset (i.e. use a dask array).
+        Stacking dimensions, or manually specifying the stacked dimension created by the groupby,
+        seemed to have no effect.
+        Turns out there are a few related issues, too: https://nbviewer.jupyter.org/gist/rabernat/30e7b747f0e3583b5b776e4093266114
+        Many of them are still open...
+        """
+
+        """
+        Notes on other ways to get this info/iterate through icebergs
+        Specifically: GROUPBY IS VERY SLOW AND DOESN'T STAY LAZY
+        Some relevant issues/posts:
+        https://github.com/pydata/xarray/issues/2852
+        https://github.com/pydata/xarray/issues/659
+        Though sometimes the issue may be lazy loading of netCDF files...
+        http://xarray.pydata.org/en/stable/io.html#netcdf
+        """
+
+    
+        # print("gridded ds created")
+        # print(dataset) # will removing unneeded variables for this step speed up the groupby?
+        # grouped = dataset.drop("spatial_ref").groupby(dataset.bergkey)
+        # print("groups created")
+        # groupmeds = grouped.median(skipna=True)
+        # print("computed group medians")
+
+        # for key in vardict.keys():
+        #     print(key)
+        #     print(vardict[key])
+        #     # print(grouped)
+        #     self._gdf[vardict[key]] = groupmeds[vardict[key]]
+        #     # self._gdf[vardict[key]] = grouped.median([vardict[key]], skipna=True)
+        #     print("done with one variable")
+        #     print(key)
+        
+        # for bkey, vals in grouped:
+        #     for key in vardict.keys():
+        #         pxvals = vals[vardict[key]].values
+        #         pxvals = pxvals[~np.isnan(pxvals)]
+        #         self._gdf.at[self._gdf[self._gdf["bergkey"]==bkey].index[0], vardict[key]] = np.nanmedian(pxvals)
+
+

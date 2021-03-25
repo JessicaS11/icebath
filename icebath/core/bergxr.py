@@ -164,6 +164,10 @@ class BergXR:
         Get info from another dataset (NetCDF) and resample it and add it to the dataset.
         Note: this requires you have a local copy of the NetCDF you are using.
         Note: this also assumes reconciled crs between the existing and input variables.
+
+        Using groupby on a netcdf may be slow due to lazy loading: https://github.com/pydata/xarray/issues/659#issuecomment-334212532
+        However, at the moment it looks like you can't open the dataset (http://xarray.pydata.org/en/stable/io.html#netcdf)
+            with geospatial info, because rioxarray is not yet an engine.
         """
 
         self._validate(self, req_dim)
