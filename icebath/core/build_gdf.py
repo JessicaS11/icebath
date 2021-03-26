@@ -325,6 +325,8 @@ def filter_pot_bergs(poss_bergs, onedem):
     poss_gdf = gpd.GeoDataFrame({'origberg': [Polygon(berg) for berg in poss_bergs]}, geometry='origberg')
     poss_gdf = poss_gdf.set_crs(crs)
     print("Potential icebergs found: " + str(len(poss_gdf)))
+    if len(poss_bergs) == 0:
+        return [], [], []
 
     # remove empty or invalid geometries
     poss_gdf = poss_gdf[~poss_gdf.origberg.is_empty]
@@ -370,6 +372,8 @@ def filter_pot_bergs(poss_bergs, onedem):
     poss_gdf['complexity'] = [vector_ops.poly_complexity(oneberg) for oneberg in poss_gdf.berg]
     poss_gdf = poss_gdf[poss_gdf.complexity < 0.07]
     print("Potential icebergs after complex ones removed: " + str(len(poss_gdf)))
+    if len(poss_bergs) == 0:
+        return [], [], []
     poss_gdf = poss_gdf.reset_index().drop(columns=["index", "complexity"])
 
     total_bounds = poss_gdf.total_bounds
@@ -383,7 +387,7 @@ def filter_pot_bergs(poss_bergs, onedem):
     onedem = onedem.chunk({'x': 1024, 'y':1024})
     # onedem = onedem.rio.clip_box(*total_bounds).chunk({'x': 1024, 'y':1024})
 
-    # rasterize the icebergs and extract the median of the elevation pixel values
+    # rasterize the icebergs; get the buffered iceberg elevation values for computing draft
     poss_gdf['bergkey'] = poss_gdf.index.astype(int)
     poss_gdf["geometry"] = poss_gdf.berg
 
@@ -397,36 +401,25 @@ def filter_pot_bergs(poss_bergs, onedem):
     gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
     gdf_grid = gdf_grid.chunk({'x': 1024, 'y':1024}) # play with this to see if it makes a difference?
     grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
+    poss_gdf["freeboardmed"] = [0] * len(poss_gdf.index)
+    poss_gdf["elevs"] = '' # so that it's object type, not int, for a variable length array
+    for key, vals in grouped:
+        pxvals = vals.elev.values
+        pxvals = pxvals[~np.isnan(pxvals)]
+        poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = pxvals
+        poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "freeboardmed"] = np.nanmedian(pxvals)
     
-    def nanmedian_wrapper(gb, axis=0):
-        """
-        Groupby wrapper to apply a nanmedian to a dask array (not sure how it will
-        behave if a non-dask array is input). Getting here was a challenge, as using
-        grouped.median() in just about any form resulted in a not-implemented error
-        (even when axis arguments were passed), despite the existance of median methods
-        for both dask arrays and groupby objects.
-        In my exploration, I ran the geocube example: https://corteva.github.io/geocube/stable/examples/grid_to_vector_map.html
-        which promptly fails if you chunk the xarray dataset (i.e. use a dask array).
-        Stacking dimensions, or manually specifying the stacked dimension created by the groupby,
-        seemed to have no effect.
-        Turns out there are a few related issues, too: https://nbviewer.jupyter.org/gist/rabernat/30e7b747f0e3583b5b776e4093266114
-        Many of them are still open...
-        """
-
-        med = da.nanmedian(gb, axis=0).compute()
-        return med
-    
-    grouped_med = grouped.reduce(nanmedian_wrapper).rename({"elev":"freeboardmed"})
-    poss_gdf = poss_gdf.join(grouped_med.to_dataframe().drop(columns=["spatial_ref"])[['freeboardmed']], on="bergkey", how="left")
     del gdf_grid
 
     # skip bergs that returned all nan elevation values (and thus a nan median value)
-    poss_gdf = poss_gdf[poss_gdf != np.nan]
+    poss_gdf = poss_gdf[poss_gdf["freeboardmed"] != np.nan]
     # print(len(poss_gdf))
 
     # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
     poss_gdf = poss_gdf[poss_gdf['freeboardmed'] < max_freebd] # units in meters, matching those of the DEM elevation
     print("Potential icebergs after too-tall ones removed: " + str(len(poss_gdf)))
+    if len(poss_bergs) == 0:
+        return [], [], []
     # print(poss_gdf)
 
     # get the regional elevation values and use to determine the sea level adjustment
@@ -466,33 +459,20 @@ def filter_pot_bergs(poss_bergs, onedem):
     # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
     poss_gdf = poss_gdf[abs(poss_gdf.freeboardmed - poss_gdf.sl_adj) > minfree]
     print("Potential icebergs after too small ones removed: " + str(len(poss_gdf)))
+    if len(poss_bergs) == 0:
+        return [], [], []
+    
+    # apply the sea level adjustment to the elevation values
+    def decrease_offset_wrapper(gpdrow):
+        corrpxvals = icalcs.apply_decrease_offset(gpdrow["elevs"], gpdrow["sl_adj"])
+        # gpdrow["elevs"] = corrpxvals
+        return corrpxvals
 
-    # get the buffered iceberg elevation values for computing draft
-    # poss_gdf['bergkey'] = poss_gdf.index.astype(int)
-    poss_gdf["geometry"] = poss_gdf.berg
-    gdf_grid = make_geocube(vector_data=poss_gdf,
-                        measurements=["bergkey"],
-                        like=onedem,
-                        fill=np.nan
-                        )
-
-    gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
-    grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
-
-    poss_gdf["elevs"] = '' # so that it's object type, not int, for a variable length array
-    for key, vals in grouped:
-        pxvals = vals.elev.values
-        pxvals = pxvals[~np.isnan(pxvals)]
-        # apply the sea level adjustment to the elevation values
-        pxvals = icalcs.apply_decrease_offset(pxvals, poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==0].index[0], "sl_adj"])
-        poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = pxvals
-
-    del gdf_grid
+    poss_gdf["elevs"] = poss_gdf.apply(decrease_offset_wrapper, axis=1)
 
     print("Final icebergs for estimating water depths: " + str(len(poss_gdf)))
 
     return poss_gdf.berg, poss_gdf.elevs, poss_gdf.sl_adj
-
 
     '''
     Try using geocube to get sea level adjustments more efficiently.
@@ -530,4 +510,26 @@ def filter_pot_bergs(poss_bergs, onedem):
         poss_gdf.loc[poss_gdf["bergkey"]==key, "sl_adj"] = np.nanmedian(vals.elevation)
     del slberg_inner_grid
     del slberg_outer_grid
+
+
+    def nanmedian_wrapper(gb, axis=0):
+        """
+        Groupby wrapper to apply a nanmedian to a dask array (not sure how it will
+        behave if a non-dask array is input). Getting here was a challenge, as using
+        grouped.median() in just about any form resulted in a not-implemented error
+        (even when axis arguments were passed), despite the existance of median methods
+        for both dask arrays and groupby objects.
+        In my exploration, I ran the geocube example: https://corteva.github.io/geocube/stable/examples/grid_to_vector_map.html
+        which promptly fails if you chunk the xarray dataset (i.e. use a dask array).
+        Stacking dimensions, or manually specifying the stacked dimension created by the groupby,
+        seemed to have no effect.
+        Turns out there are a few related issues, too: https://nbviewer.jupyter.org/gist/rabernat/30e7b747f0e3583b5b776e4093266114
+        Many of them are still open...
+        """
+
+        med = da.nanmedian(gb, axis=0).compute()
+        return med
+    
+    grouped_med = grouped.reduce(nanmedian_wrapper).rename({"elev":"freeboardmed"})
+    poss_gdf = poss_gdf.join(grouped_med.to_dataframe().drop(columns=["spatial_ref"])[['freeboardmed']], on="bergkey", how="left")
     '''
