@@ -157,8 +157,35 @@ class BergXR:
         #                                     self._xrds.y.max().item()+0.5*self._xrds.attrs['res'][1]))
         # self._xrds.attrs[name] = unary_union(clipped_shpfl.geometry) #[shpfl.geometry.exterior[row_id].coords for row_id in range(shpfl.shape[0])])
 
+    
+    def add_meas_to_ds(self, src_fl, vardict={}, nanval=None):
+        """
+        Add new variables to an existing dataset, resampling if needed
+        
+        Parameters
+        ----------
+        dataset : XArray dataset
+                dataset containing the spatial area of interest with x and y dimensions
+        src_fl : source file, string
+                The full path of the measurement data source file
+        vardict : variable mapping, dictionary
+                Key-value pairs mapping the source dataset keys to their new variable names in the dataset
+        """
 
+        # assert type(self._xrds)==xr.core.dataset.Dataset, "You must input an Xarray dataset from which to get measured values"
+        assert vardict != {}, "You must specify your origin variables and their dataset names"
 
+        # ToDo: add check to see if the layers are already there...
+        # Note: assumes compatible CRS systems
+        for key in vardict.keys():
+            self._xrds.bergxr.get_new_var_from_file(req_dim=['x','y'], 
+                                                 newfile=src_fl, 
+                                                 variable=key, 
+                                                 varname=vardict[key])
+            if nanval != None:
+                self._xrds[vardict[key]] = self._xrds[vardict[key]].where(self._xrds[vardict[key]] != nanval)
+    
+    
     def get_new_var_from_file(self, req_dim=['x','y'], newfile=None, variable=None, varname=None):
         """
         Get info from another dataset (NetCDF) and resample it and add it to the dataset.

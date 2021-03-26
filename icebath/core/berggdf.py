@@ -14,6 +14,8 @@ import xarray as xr
 from icebath.core import fjord_props as fjord
 from icebath.core import fl_ice_calcs as icalcs
 from icebath.core import bergxr
+from icebath.core import build_xrds
+from icebath.core import berggdf as bgdf
 
 
 """
@@ -32,6 +34,19 @@ Columns ultimately used/needed:
         ]
 """
 
+def get_needed_extent(src_fl, bounds):
+    exbound = [0]*len(bounds)
+    with rioxarray.open_rasterio(src_fl) as src:
+        exbound[0] = int(getexval(src.x, 'x', bounds[0])) # later processing can't handle floats
+        exbound[2] = int(getexval(src.x, 'x', bounds[2]))
+        exbound[1] = int(getexval(src.y, 'y', bounds[1]))
+        exbound[3] = int(getexval(src.y, 'y', bounds[3]))
+    return tuple(exbound)
+
+def getexval(potvals, coord, val):
+    idx = (np.abs(potvals - val)).argmin()
+    nearval = potvals.isel({coord: idx}).item()
+    return nearval
 
 @pd.api.extensions.register_dataframe_accessor("berggdf")
 class BergGDF:
@@ -217,8 +232,8 @@ class BergGDF:
             print(datarow[geom_name].bounds)
             vals = np.nan
         return vals
-      
-    def get_meas_wat_depth(self, dataset, src_fl, vardict={}, nanval=None):
+
+    def get_meas_wat_depth(self, src_fl, vardict={}, nanval=None):
         """
         Get water depths where measurements are available
         
@@ -232,53 +247,45 @@ class BergGDF:
                 Key-value pairs mapping the source dataset keys to their new variable names in the dataset
         """
 
-        assert type(dataset)==xr.core.dataset.Dataset, "You must input an Xarray dataset from which to get measured values"
+        # assert type(dataset)==xr.core.dataset.Dataset, "You must input an Xarray dataset from which to get measured values"
         assert vardict != {}, "You must specify your origin variables and their dataset names"
 
-        # ToDo: add check to see if the layers are already there...
-        # Note: assumes compatible CRS systems
-        for key in vardict.keys():
-            dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], 
-                                                 newfile=src_fl, 
-                                                 variable=key, 
-                                                 varname=vardict[key])
-            if nanval != None:
-                dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)      
+        if type(src_fl) != list:
+            src_fl = [src_fl]
         
-        # Note: rioxarray does not carry crs info from the dataset to individual variables
+        exbounds = bgdf.get_needed_extent(src_fl[0], self._gdf.total_bounds)
+        measds = build_xrds.read_netcdfs(src_fl, exbounds).chunk({'x':2048, 'y':2048})
+        measds = measds.squeeze(drop=True)
         
-        if 'bergkey' in dataset.variables:
+        self._gdf['bergkey'] = self._gdf.index.astype(int)
+        try:
+            self._gdf["geometry"] = self._gdf.berg_poly
+        except AttributeError:
             pass
-        else:
-            self._gdf['bergkey'] = self._gdf.index.astype(int)
-            try:
-                self._gdf["geometry"] = self._gdf.berg_poly
-            except AttributeError:
-                pass
-            gdf_grid = make_geocube(vector_data=self._gdf,
-                                measurements=["bergkey"],
-                                like=dataset,
-                                fill=np.nan
-                                )
-            dataset["bergkey"] = gdf_grid["bergkey"]
-            del gdf_grid
-        
-        # also, the newly added variables don't appear to be chunked...
-        # this could be a good thing to convert to dask.delayed...
-        # would masking the bedmachine layers with the bergkey layer speed it up?
-        # or could we just not use the original dataset? if we put everything in consistent
-        # crs, then we could work at the resolution of the input datasets (much as in the visualization steps)
-        # alternatively, downsampling the original ds to not have to upsample the measured datasets so much
+        from functools import partial
+        from geocube.rasterize import rasterize_image
+        gdf_grid = make_geocube(vector_data=self._gdf,
+                            measurements=["bergkey"],
+                            like=measds,
+                            fill=np.nan,
+                            rasterize_function=partial(rasterize_image, filter_nan=True, all_touched=True)
+                            )
+        measds["bergkey"] = gdf_grid["bergkey"]
+        del gdf_grid
+       
         for bkey in self._gdf['bergkey']:
-            bergds = dataset.where(dataset['bergkey']==bkey, drop=True)
-            # print(bergds)
+            bergds = measds.where(measds['bergkey']==bkey, drop=True)
             for key in vardict.keys():
-                vals = bergds[vardict[key]].values
+                vals = bergds[key].values
                 valmed = np.nanmedian(vals)
-                # print(valmed)
+                # if key == "bed":
+                #     print(vals)
+                #     print(valmed)
                 self._gdf.at[self._gdf[self._gdf["bergkey"]==bkey].index[0], vardict[key]] = valmed
             if bkey%10 == 0:
                 print("On berg " + str(bkey))
+
+        # return measds
 
         """
         Notes on computing a nanmedian with dask:
@@ -303,5 +310,22 @@ class BergGDF:
         http://xarray.pydata.org/en/stable/io.html#netcdf
         Noting this here as a future dev opportunity/space...
         """
+
+
+        
+        
+        
+        
+        # # ToDo: add check to see if the layers are already there...
+        # # Note: assumes compatible CRS systems
+        # for key in vardict.keys():
+        #     dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], 
+        #                                          newfile=src_fl, 
+        #                                          variable=key, 
+        #                                          varname=vardict[key])
+        #     if nanval != None:
+        #         dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)      
+        
+        # # Note: rioxarray does not carry crs info from the dataset to individual variables
 
 
