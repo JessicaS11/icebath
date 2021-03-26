@@ -285,6 +285,8 @@ class BergGDF:
             if bkey%10 == 0:
                 print("On berg " + str(bkey))
 
+        del self._gdf["geometry"]
+
         # return measds
 
         """
