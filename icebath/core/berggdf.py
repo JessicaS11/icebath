@@ -178,6 +178,7 @@ class BergGDF:
    
 
     # ToDo: generalize this function to be for any input geometry and raster (with matching CRS)
+    # May be able to remove this function...
     @staticmethod
     def get_px_vals(datarow, geom_name, raster, crs=None):
         '''
@@ -242,16 +243,9 @@ class BergGDF:
                                                  variable=key, 
                                                  varname=vardict[key])
             if nanval != None:
-                dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)
-            
-            # self._gdf[vardict[key]] = [0] * len(self._gdf)
-                
-            # # Note: rioxarray does not carry crs info from the dataset to individual variables
-            # px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
-            #                         args=('berg_poly', 
-            #                               dataset[vardict[key]]), 
-            #                               **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
-            # self._gdf[vardict[key]] = px_vals.apply(np.nanmedian)
+                dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)      
+        
+        # Note: rioxarray does not carry crs info from the dataset to individual variables
         
         if 'bergkey' in dataset.variables:
             pass
@@ -268,14 +262,23 @@ class BergGDF:
                                 )
             dataset["bergkey"] = gdf_grid["bergkey"]
             del gdf_grid
-
-
+        
+        # also, the newly added variables don't appear to be chunked...
+        # this could be a good thing to convert to dask.delayed...
+        # would masking the bedmachine layers with the bergkey layer speed it up?
+        # or could we just not use the original dataset? if we put everything in consistent
+        # crs, then we could work at the resolution of the input datasets (much as in the visualization steps)
+        # alternatively, downsampling the original ds to not have to upsample the measured datasets so much
         for bkey in self._gdf['bergkey']:
+            bergds = dataset.where(dataset['bergkey']==bkey, drop=True)
+            # print(bergds)
             for key in vardict.keys():
-                print(vardict[key])
-                valmed = np.nanmedian(dataset.where('bergkey'==bkey)[vardict[key]].values)
+                vals = bergds[vardict[key]].values
+                valmed = np.nanmedian(vals)
+                # print(valmed)
                 self._gdf.at[self._gdf[self._gdf["bergkey"]==bkey].index[0], vardict[key]] = valmed
-
+            if bkey%10 == 0:
+                print("On berg " + str(bkey))
 
         """
         Notes on computing a nanmedian with dask:
@@ -298,29 +301,7 @@ class BergGDF:
         https://github.com/pydata/xarray/issues/659
         Though sometimes the issue may be lazy loading of netCDF files...
         http://xarray.pydata.org/en/stable/io.html#netcdf
+        Noting this here as a future dev opportunity/space...
         """
-
-    
-        # print("gridded ds created")
-        # print(dataset) # will removing unneeded variables for this step speed up the groupby?
-        # grouped = dataset.drop("spatial_ref").groupby(dataset.bergkey)
-        # print("groups created")
-        # groupmeds = grouped.median(skipna=True)
-        # print("computed group medians")
-
-        # for key in vardict.keys():
-        #     print(key)
-        #     print(vardict[key])
-        #     # print(grouped)
-        #     self._gdf[vardict[key]] = groupmeds[vardict[key]]
-        #     # self._gdf[vardict[key]] = grouped.median([vardict[key]], skipna=True)
-        #     print("done with one variable")
-        #     print(key)
-        
-        # for bkey, vals in grouped:
-        #     for key in vardict.keys():
-        #         pxvals = vals[vardict[key]].values
-        #         pxvals = pxvals[~np.isnan(pxvals)]
-        #         self._gdf.at[self._gdf[self._gdf["bergkey"]==bkey].index[0], vardict[key]] = np.nanmedian(pxvals)
 
 

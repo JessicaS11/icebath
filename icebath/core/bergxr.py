@@ -216,6 +216,7 @@ class BergXR:
                 try:
                     newvar = newdset.interp(x=self._xrds['x'], y=self._xrds['y']).chunk({key:self._xrds.chunks[key] for key in req_dim})
                 except KeyError:
+                    print("there was a key error, so no chunking")
                     newvar = newdset.interp(x=self._xrds['x'], y=self._xrds['y'])
                 
                 self._xrds[varname] = newvar
