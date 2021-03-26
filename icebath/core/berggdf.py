@@ -310,22 +310,3 @@ class BergGDF:
         http://xarray.pydata.org/en/stable/io.html#netcdf
         Noting this here as a future dev opportunity/space...
         """
-
-
-        
-        
-        
-        
-        # # ToDo: add check to see if the layers are already there...
-        # # Note: assumes compatible CRS systems
-        # for key in vardict.keys():
-        #     dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], 
-        #                                          newfile=src_fl, 
-        #                                          variable=key, 
-        #                                          varname=vardict[key])
-        #     if nanval != None:
-        #         dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)      
-        
-        # # Note: rioxarray does not carry crs info from the dataset to individual variables
-
-
