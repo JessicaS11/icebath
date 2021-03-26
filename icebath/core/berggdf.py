@@ -5,6 +5,7 @@ import scipy.stats as stats
 import ogr
 import os
 import fnmatch
+from geocube.api.core import make_geocube
 import geopandas as gpd
 import rioxarray
 from rioxarray.rioxarray import NoDataInBounds
@@ -13,6 +14,8 @@ import xarray as xr
 from icebath.core import fjord_props as fjord
 from icebath.core import fl_ice_calcs as icalcs
 from icebath.core import bergxr
+from icebath.core import build_xrds
+from icebath.core import berggdf as bgdf
 
 
 """
@@ -31,6 +34,19 @@ Columns ultimately used/needed:
         ]
 """
 
+def get_needed_extent(src_fl, bounds):
+    exbound = [0]*len(bounds)
+    with rioxarray.open_rasterio(src_fl) as src:
+        exbound[0] = int(getexval(src.x, 'x', bounds[0])) # later processing can't handle floats
+        exbound[2] = int(getexval(src.x, 'x', bounds[2]))
+        exbound[1] = int(getexval(src.y, 'y', bounds[1]))
+        exbound[3] = int(getexval(src.y, 'y', bounds[3]))
+    return tuple(exbound)
+
+def getexval(potvals, coord, val):
+    idx = (np.abs(potvals - val)).argmin()
+    nearval = potvals.isel({coord: idx}).item()
+    return nearval
 
 @pd.api.extensions.register_dataframe_accessor("berggdf")
 class BergGDF:
@@ -177,6 +193,7 @@ class BergGDF:
    
 
     # ToDo: generalize this function to be for any input geometry and raster (with matching CRS)
+    # May be able to remove this function...
     @staticmethod
     def get_px_vals(datarow, geom_name, raster, crs=None):
         '''
@@ -215,8 +232,8 @@ class BergGDF:
             print(datarow[geom_name].bounds)
             vals = np.nan
         return vals
-      
-    def get_meas_wat_depth(self, dataset, src_fl, vardict={}, nanval=None):
+
+    def get_meas_wat_depth(self, src_fl, vardict={}, nanval=None):
         """
         Get water depths where measurements are available
         
@@ -230,22 +247,66 @@ class BergGDF:
                 Key-value pairs mapping the source dataset keys to their new variable names in the dataset
         """
 
-        assert type(dataset)==xr.core.dataset.Dataset, "You must input an Xarray dataset from which to get measured values"
+        # assert type(dataset)==xr.core.dataset.Dataset, "You must input an Xarray dataset from which to get measured values"
         assert vardict != {}, "You must specify your origin variables and their dataset names"
 
-        # ToDo: add check to see if the layers are already there...
-        # Note: assumes compatible CRS systems
-        for key in vardict.keys():
-            dataset.bergxr.get_new_var_from_file(req_dim=['x','y'], 
-                                                 newfile=src_fl, 
-                                                 variable=key, 
-                                                 varname=vardict[key])
-            if nanval != None:
-                dataset[vardict[key]] = dataset[vardict[key]].where(dataset[vardict[key]] != nanval)
-                
-            # Note: rioxarray does not carry crs info from the dataset to individual variables
-            px_vals = self._gdf.apply(self.get_px_vals, axis=1, 
-                                    args=('berg_poly', 
-                                          dataset[vardict[key]]), 
-                                          **{"crs": dataset.attrs['crs']}) #if args has length 1, a trailing comma is needed in args
-            self._gdf[vardict[key]] = px_vals.apply(np.nanmedian)
+        if type(src_fl) != list:
+            src_fl = [src_fl]
+        
+        exbounds = bgdf.get_needed_extent(src_fl[0], self._gdf.total_bounds)
+        measds = build_xrds.read_netcdfs(src_fl, exbounds).chunk({'x':2048, 'y':2048})
+        measds = measds.squeeze(drop=True)
+        
+        self._gdf['bergkey'] = self._gdf.index.astype(int)
+        try:
+            self._gdf["geometry"] = self._gdf.berg_poly
+        except AttributeError:
+            pass
+        from functools import partial
+        from geocube.rasterize import rasterize_image
+        gdf_grid = make_geocube(vector_data=self._gdf,
+                            measurements=["bergkey"],
+                            like=measds,
+                            fill=np.nan,
+                            rasterize_function=partial(rasterize_image, filter_nan=True, all_touched=True)
+                            )
+        measds["bergkey"] = gdf_grid["bergkey"]
+        del gdf_grid
+       
+        for bkey in self._gdf['bergkey']:
+            bergds = measds.where(measds['bergkey']==bkey, drop=True)
+            for key in vardict.keys():
+                vals = bergds[key].values
+                valmed = np.nanmedian(vals)
+                # if key == "bed":
+                #     print(vals)
+                #     print(valmed)
+                self._gdf.at[self._gdf[self._gdf["bergkey"]==bkey].index[0], vardict[key]] = valmed
+            if bkey%10 == 0:
+                print("On berg " + str(bkey))
+
+        # return measds
+
+        """
+        Notes on computing a nanmedian with dask:
+        using .median() in just about any form resulted in a not-implemented error
+        (even when axis arguments were passed), despite the existance of median methods
+        for both dask arrays and groupby objects.
+        In my exploration, I ran the geocube example: https://corteva.github.io/geocube/stable/examples/grid_to_vector_map.html
+        which promptly fails if you chunk the xarray dataset (i.e. use a dask array).
+        Stacking dimensions, or manually specifying the stacked dimension created by the groupby,
+        seemed to have no effect.
+        Turns out there are a few related issues, too: https://nbviewer.jupyter.org/gist/rabernat/30e7b747f0e3583b5b776e4093266114
+        Many of them are still open...
+        """
+
+        """
+        Notes on other ways to get this info/iterate through icebergs
+        Specifically: GROUPBY IS VERY SLOW AND DOESN'T STAY LAZY
+        Some relevant issues/posts:
+        https://github.com/pydata/xarray/issues/2852
+        https://github.com/pydata/xarray/issues/659
+        Though sometimes the issue may be lazy loading of netCDF files...
+        http://xarray.pydata.org/en/stable/io.html#netcdf
+        Noting this here as a future dev opportunity/space...
+        """

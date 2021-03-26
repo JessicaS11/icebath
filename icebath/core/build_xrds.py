@@ -331,3 +331,33 @@ def read_meta(metafn=None):
                 break
 	
     return metadata
+
+
+def read_netcdfs(files, extent):
+    def process_one_path(path, bbox):
+        with rioxarray.open_rasterio(path) as rds:
+#             if type(rds) is xr.DataArray:
+#                 rds = rds.to_dataset()
+            geotrans = rds.rio.transform()
+#             print(geotrans)
+            if int(abs(geotrans[0])) != 150 or int(abs(geotrans[4])) != 150:
+#                 print("resampling")
+                rds = rds.interp(x=[*range(bbox[0],bbox[2]+150, 150)], y=[*range(bbox[1],bbox[3]+150,150)])
+            else:
+#                 print("slicing")
+                rds = rds.rio.slice_xy(*bbox)
+
+            if pd.Series(rds.y).is_monotonic_increasing:
+                rds = rds.reindex(y=list(reversed(rds.y)))
+#             print(rds.rio.transform(recalc=True))
+            
+            # load all data from the transformed dataset, to ensure we can
+            # use it after closing each original file
+            # rds.load()
+#             print(rds)
+            
+            return rds
+
+    datasets = [process_one_path(p, extent) for p in files]
+    combined = xr.merge(datasets, combine_attrs="no_conflicts")#, dim, join="exact")
+    return combined
