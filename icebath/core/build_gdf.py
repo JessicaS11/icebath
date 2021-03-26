@@ -464,15 +464,15 @@ def filter_pot_bergs(poss_bergs, onedem):
     
     # apply the sea level adjustment to the elevation values
     def decrease_offset_wrapper(gpdrow):
-        corrpxvals = icalcs.apply_decrease_offset(gpdrow["elevs"].values, gpdrow["sl_adj"].values)
-        gpdrow["elevs"] = corrpxvals    
+        corrpxvals = icalcs.apply_decrease_offset(gpdrow["elevs"], gpdrow["sl_adj"])
+        # gpdrow["elevs"] = corrpxvals
+        return corrpxvals
 
-    poss_gdf = poss_gdf.apply(decrease_offset_wrapper)
+    poss_gdf["elevs"] = poss_gdf.apply(decrease_offset_wrapper, axis=1)
 
     print("Final icebergs for estimating water depths: " + str(len(poss_gdf)))
 
     return poss_gdf.berg, poss_gdf.elevs, poss_gdf.sl_adj
-
 
     '''
     Try using geocube to get sea level adjustments more efficiently.
