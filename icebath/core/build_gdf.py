@@ -56,7 +56,7 @@ def gdf_of_bergs(onedem, usedask=True):
     # print(len(poss_bergs))
 
     # Exclude icebergs that don't meet the requirements
-    bergs, elevs, sl_adjs = filter_pot_bergs(poss_bergs, onedem)
+    bergs, elevs, sl_adjs = filter_pot_bergs(poss_bergs, onedem, usedask)
 
     # delete generator object so no issues between DEMs
     try:
@@ -298,7 +298,7 @@ def getexval(potvals, coord, val):
     nearval = potvals.isel({coord: idx}).item()
     return nearval
 
-def filter_pot_bergs(poss_bergs, onedem):
+def filter_pot_bergs(poss_bergs, onedem, usedask):
     """
     Test each potential iceberg for validity, and if valid compute the sea level adjustment and
     get elevation pixel values for putting into the geodataframe.
@@ -399,7 +399,7 @@ def filter_pot_bergs(poss_bergs, onedem):
 
     # print(gdf_grid)
     gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
-    gdf_grid = gdf_grid.chunk({'x': 1024, 'y':1024}) # play with this to see if it makes a difference?
+    gdf_grid = gdf_grid.chunk({'x': 1024, 'y':1024}) #DevGoal: make this a variable
     grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
     poss_gdf["freeboardmed"] = [0] * len(poss_gdf.index)
     poss_gdf["elevs"] = '' # so that it's object type, not int, for a variable length array
@@ -410,6 +410,7 @@ def filter_pot_bergs(poss_bergs, onedem):
         poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "freeboardmed"] = np.nanmedian(pxvals)
     
     del gdf_grid
+    del grouped
 
     # skip bergs that returned all nan elevation values (and thus a nan median value)
     poss_gdf = poss_gdf[poss_gdf["freeboardmed"] != np.nan]
@@ -453,8 +454,12 @@ def filter_pot_bergs(poss_bergs, onedem):
         return sl_adj
     # print(onedem)
     onedem['elevation'] = onedem.elevation.rio.write_crs(onedem.attrs['crs'], inplace=True)
+    
     # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
-    poss_gdf["sl_adj"] = poss_gdf.sl_aroundberg.apply(get_sl_adj)
+    if usedask == True:
+        poss_gdf["sl_adj"] = poss_gdf.sl_aroundberg.apply(get_sl_adj)
+    else:
+        poss_gdf["sl_adj"] = poss_gdf.sl_aroundberg.apply(get_sl_adj)
 
     # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
     poss_gdf = poss_gdf[abs(poss_gdf.freeboardmed - poss_gdf.sl_adj) > minfree]
