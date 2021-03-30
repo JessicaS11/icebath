@@ -100,9 +100,19 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         # convert to dataset with elevation as a variable and add attributes
         attr = darr.attrs
         ds = darr.to_dataset()
+
+        # try coarsening the data to 4 m resolution to see if it helps with memory crashes during processing
+        coarse = 2
+        print(ds)
+        ds = ds.coarsen(x=coarse, y=coarse, boundary='pad').mean()
+        print(ds)
+
         ds.attrs = attr
         ds.attrs['fjord'] = fjord
+        ds.attrs['res'] = tuple(x * coarse for x in attr['res'])
         attr=None
+
+        print(ds)
         # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
         # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
         
@@ -121,7 +131,8 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         # set the transform and crs as attributes since that's how they're accessed later in the pipeline
         # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
         # ds.attrs['crs'] = ds.spatial_ref.crs_wkt
-        
+
+
         return ds
 
 
