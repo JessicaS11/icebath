@@ -370,7 +370,14 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
 
     # get the polygon complexity and remove if it's above the threshold
     poss_gdf['complexity'] = [vector_ops.poly_complexity(oneberg) for oneberg in poss_gdf.berg]
-    poss_gdf = poss_gdf[poss_gdf.complexity < 0.07]
+    if res == 2.0:
+        complexthresh = 0.07
+    elif res ==4.0:
+        complexthresh = 0.10
+    else:
+        complexthresh = 0.08
+        print("using a default complexity threshold value - add one for your resolution")
+    poss_gdf = poss_gdf[poss_gdf.complexity < complexthresh]
     print("Potential icebergs after complex ones removed: " + str(len(poss_gdf)))
     if len(poss_bergs) == 0:
         return [], [], []
