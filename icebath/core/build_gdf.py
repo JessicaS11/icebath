@@ -376,7 +376,6 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
         return [], [], []
     poss_gdf = poss_gdf.reset_index().drop(columns=["index", "complexity"])
 
-    print("checkpoint a")
     total_bounds = poss_gdf.total_bounds
     try: onedem = onedem.rio.slice_xy(*total_bounds)
     except NoDataInBounds:
@@ -385,102 +384,30 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
         for a, b in zip(total_bounds, coords):
             exbound_box.append(getexval(onedem[b], b, a))
         onedem = onedem['elevation'].rio.slice_xy(*exbound_box)
-    onedem = onedem.chunk({'x': 1024, 'y':1024})
+    # onedem = onedem.chunk({'x': 1024, 'y':1024})
     # onedem = onedem.rio.clip_box(*total_bounds).chunk({'x': 1024, 'y':1024})
 
     # rasterize the icebergs; get the buffered iceberg elevation values for computing draft
     poss_gdf['bergkey'] = poss_gdf.index.astype(int)
     poss_gdf["geometry"] = poss_gdf.berg
-    print("checkpoint b")
     gdf_grid = make_geocube(vector_data=poss_gdf,
                         measurements=["bergkey"],
                         like=onedem,
                         fill=np.nan
                         )
-    print("checkpoint c")
-    # print(gdf_grid)
-    # gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
-    gdf_grid = gdf_grid.chunk({'x': 1024, 'y':1024}) #DevGoal: make this a variable
-    # grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
-    # del gdf_grid
-    print("checkpoint d")
-    poss_gdf["freeboardmed"] = [0] * len(poss_gdf.index)
+
+    # gdf_grid = gdf_grid.chunk({'x': 1024, 'y':1024}) #DevGoal: make this a variable
+    poss_gdf["freeboardmed"] = [0.0] * len(poss_gdf.index)
     poss_gdf["elevs"] = '' # so that it's object type, not int, for a variable length array
     
-
-    if usedask == True:
-        
-        @dask.delayed
-        def get_berg_px_vals(bkey, onedem, gdf_grid):
-            pxvals = onedem.where(gdf_grid["bergkey"] == bkey, drop=True)["elevation"].values
-            pxvals = pxvals[~np.isnan(pxvals)]
-            return {key, pxvals}
-
-        pxdict = {}
-        print("using dask to iterate through the berg keys")
-        bkey_delayeds = [d for d in it.chain.from_iterable(poss_gdf["bergkey"])]
-        for bkey in bkey_delayeds:
-            keypx_dict = get_berg_px_vals(bkey, onedem, gdf_grid)
-            pxdict.update(keypx_dict)
-        pxdict = dask.compute(*pxdict)
-        print(pxdict)
-        print(type(pxdict))
-
-    for key, val in pxdict.items():
-            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = val
-            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "freeboardmed"] = np.nanmedian(val)
-        
-    del pxdict
-    
-    # for bkey in poss_gdf["bergkey"]:
-    #     bergdem = onedem.where(gdf_grid["bergkey"] == bkey, drop=True)
-    #     pxvals = bergdem["elevation"].values
-    #     pxvals = pxvals[~np.isnan(pxvals)]
-    #     poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==bkey].index[0], "elevs"] = pxvals
-    #     poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==bkey].index[0], "freeboardmed"] = np.nanmedian(pxvals)
-    #     del bergdem
-
-
-
-    '''
-    @dask.delayed
-    def get_berg_px_vals(key, vals):
-        pxvals = vals.elev.values
+    for bkey in poss_gdf["bergkey"]:
+        bergdem = onedem.where(gdf_grid["bergkey"] == bkey, drop=True)
+        pxvals = bergdem["elevation"].values
         pxvals = pxvals[~np.isnan(pxvals)]
-        return {key: pxvals}
-
-    if usedask == True:
-        pxdict = {}
-        print("using dask to iterate through the groups")
-        group_delayeds = [d for d in it.chain.from_iterable(grouped.to_delayed())]
-        for key, vals in group_delayeds:
-            keypx_dict = get_berg_px_vals(key, vals)
-            pxdict.update(keypx_dict)
-        pxdict = dask.compute(*pxdict)
-        print(pxdict)
-        print(type(pxdict))
-
-        for key, val in pxdict.items():
-            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = val
-            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "freeboardmed"] = np.nanmedian(val)
-        
-        del pxdict
-
-    else:
-        for key, vals in grouped:
-            pxvals = vals.elev.values
-            pxvals = pxvals[~np.isnan(pxvals)]
-            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = pxvals
-            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "freeboardmed"] = np.nanmedian(pxvals)
-    del grouped
-    '''
-    print("checkpoint e")
-
-
-
-
-
-
+        poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==bkey].index[0], "elevs"] = pxvals
+        poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==bkey].index[0], "freeboardmed"] = np.nanmedian(pxvals)
+        del bergdem
+    del gdf_grid
 
     # skip bergs that returned all nan elevation values (and thus a nan median value)
     poss_gdf = poss_gdf[poss_gdf["freeboardmed"] != np.nan]
@@ -526,16 +453,7 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
     onedem['elevation'] = onedem.elevation.rio.write_crs(onedem.attrs['crs'], inplace=True)
     
     # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
-    if usedask == True:
-        print("using dask geopandas to iterate through the bergs")
-        import dask_geopandas as dgpd
-        dask_poss_gdf = dgpd.from_geopandas(poss_gdf, npartitions=2)
-        sl_adjs = dask_poss_gdf.apply(get_sl_adj).compute()
-        poss_gdf["sl_adj"] = sl_adjs
-        del dask_poss_gdf
-        del sl_adjs
-    else:
-        poss_gdf["sl_adj"] = poss_gdf.sl_aroundberg.apply(get_sl_adj)
+    poss_gdf["sl_adj"] = poss_gdf.sl_aroundberg.apply(get_sl_adj)
 
     # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
     poss_gdf = poss_gdf[abs(poss_gdf.freeboardmed - poss_gdf.sl_adj) > minfree]
@@ -555,62 +473,78 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
 
     return poss_gdf.berg, poss_gdf.elevs, poss_gdf.sl_adj
 
+
+    # Attempts to use dask to eliminate memory crashing issues; some had minor errors, but overall it
+    # was coarsening the data that proved most effective. This is also leftover from moving away from groupby
+
+    # if usedask == True:
+        
+    #     @dask.delayed
+    #     def get_berg_px_vals(bkey, onedem, gdf_grid):
+    #         pxvals = onedem.where(gdf_grid["bergkey"] == bkey, drop=True)["elevation"].values
+    #         pxvals = pxvals[~np.isnan(pxvals)]
+    #         return {key, pxvals}
+
+    #     pxdict = {}
+    #     print("using dask to iterate through the berg keys")
+    #     bkey_delayeds = [d for d in it.chain.from_iterable(poss_gdf["bergkey"])]
+    #     for bkey in bkey_delayeds:
+    #         keypx_dict = get_berg_px_vals(bkey, onedem, gdf_grid)
+    #         pxdict.update(keypx_dict)
+    #     pxdict = dask.compute(*pxdict)
+    #     print(pxdict)
+    #     print(type(pxdict))
+
+    #     for key, val in pxdict.items():
+    #             poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = val
+    #             poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "freeboardmed"] = np.nanmedian(val)
+            
+    #     del pxdict
+
     '''
-    Try using geocube to get sea level adjustments more efficiently.
-    An issue arises when the icebergs are close together enough that their buffers overlap.
-    Then, they can't have multiple key values, creating issues with getting the correct sea level adjustments.
-
-    # get the values to compute the sea level offset
-    poss_gdf['bergkey'] = poss_gdf.index.astype(int)
+    gdf_grid['elev'] = onedem.reset_coords(drop=True)["elevation"]
+    gdf_grid = gdf_grid.chunk({'x': 1024, 'y':1024}) #DevGoal: make this a variable
+    grouped = gdf_grid.drop("spatial_ref").groupby(gdf_grid.bergkey)
     
-    # get geometry bordering iceberg for sea level adjustment
-    poss_gdf['slberg_inner'] = poss_gdf.origberg.buffer(buffer)
-    # get the regional elevation values and use to determine the sea level adjustment
-    poss_gdf['slberg_outer'] = poss_gdf.origberg.buffer(2*buffer)
-    
-    poss_gdf["geometry"] = poss_gdf.slberg_inner
-    slberg_inner_grid = make_geocube(vector_data=poss_gdf,
-                        measurements=["bergkey"],
-                        like=onedem,
-                        fill=np.nan
-                        )
+    @dask.delayed
+    def get_berg_px_vals(key, vals):
+        pxvals = vals.elev.values
+        pxvals = pxvals[~np.isnan(pxvals)]
+        return {key: pxvals}
 
-    poss_gdf["geometry"] = poss_gdf.slberg_outer
-    slberg_outer_grid = make_geocube(vector_data=poss_gdf,
-                        measurements=["bergkey"],
-                        like=onedem,
-                        fill=np.nan
-                        )
+    if usedask == True:
+        pxdict = {}
+        print("using dask to iterate through the groups")
+        group_delayeds = [d for d in it.chain.from_iterable(grouped.to_delayed())]
+        for key, vals in group_delayeds:
+            keypx_dict = get_berg_px_vals(key, vals)
+            pxdict.update(keypx_dict)
+        pxdict = dask.compute(*pxdict)
+        print(pxdict)
+        print(type(pxdict))
 
-    onedem["sl_keys"] = slberg_outer_grid["bergkey"] - slberg_inner_grid["bergkey"]
-    grouped = onedem.reset_coords(drop=True).groupby("sl_keys") #.drop("spatial_ref") is dropped as a non-dim coord
-    
+        for key, val in pxdict.items():
+            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = val
+            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "freeboardmed"] = np.nanmedian(val)
+        
+        del pxdict
+
+    else:
+        for key, vals in grouped:
+            pxvals = vals.elev.values
+            pxvals = pxvals[~np.isnan(pxvals)]
+            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "elevs"] = pxvals
+            poss_gdf.at[poss_gdf[poss_gdf["bergkey"]==key].index[0], "freeboardmed"] = np.nanmedian(pxvals)
+    del grouped
+    '''
+
     # NOTE: sea level adjustment (m) is relative to tidal height at the time of image acquisition, not 0 msl
-    poss_gdf["sl_adj"] = [0] * len(poss_gdf.index)
-    for key, vals in grouped:
-        poss_gdf.loc[poss_gdf["bergkey"]==key, "sl_adj"] = np.nanmedian(vals.elevation)
-    del slberg_inner_grid
-    del slberg_outer_grid
-
-
-    def nanmedian_wrapper(gb, axis=0):
-        """
-        Groupby wrapper to apply a nanmedian to a dask array (not sure how it will
-        behave if a non-dask array is input). Getting here was a challenge, as using
-        grouped.median() in just about any form resulted in a not-implemented error
-        (even when axis arguments were passed), despite the existance of median methods
-        for both dask arrays and groupby objects.
-        In my exploration, I ran the geocube example: https://corteva.github.io/geocube/stable/examples/grid_to_vector_map.html
-        which promptly fails if you chunk the xarray dataset (i.e. use a dask array).
-        Stacking dimensions, or manually specifying the stacked dimension created by the groupby,
-        seemed to have no effect.
-        Turns out there are a few related issues, too: https://nbviewer.jupyter.org/gist/rabernat/30e7b747f0e3583b5b776e4093266114
-        Many of them are still open...
-        """
-
-        med = da.nanmedian(gb, axis=0).compute()
-        return med
-    
-    grouped_med = grouped.reduce(nanmedian_wrapper).rename({"elev":"freeboardmed"})
-    poss_gdf = poss_gdf.join(grouped_med.to_dataframe().drop(columns=["spatial_ref"])[['freeboardmed']], on="bergkey", how="left")
-    '''
+    # if usedask == True:
+    #     print("using dask geopandas to iterate through the bergs")
+    #     import dask_geopandas as dgpd
+    #     dask_poss_gdf = dgpd.from_geopandas(poss_gdf, npartitions=2)
+    #     sl_adjs = dask_poss_gdf.apply(get_sl_adj).compute()
+    #     poss_gdf["sl_adj"] = sl_adjs
+    #     del dask_poss_gdf
+    #     del sl_adjs
+    # else:
