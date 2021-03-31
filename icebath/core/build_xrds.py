@@ -102,6 +102,7 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         ds = darr.to_dataset()
 
         # coarsen the data to 4 m resolution to reduce memory crashes during processing
+        # note that this may be important in later steps when resolution is used as an input
         coarse = 2
         if coarse > 1:
             print("Your input DEMs will be downsampled to enable processing")
