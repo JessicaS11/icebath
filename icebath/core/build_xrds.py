@@ -101,10 +101,10 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         attr = darr.attrs
         ds = darr.to_dataset()
 
-        # try coarsening the data to 4 m resolution to see if it helps with memory crashes during processing
+        # coarsen the data to 4 m resolution to reduce memory crashes during processing
         coarse = 2
         if coarse > 1:
-            print("Your input DEMs have been downsampled to enable processing")
+            print("Your input DEMs will be downsampled to enable processing")
         ds = ds.coarsen(x=coarse, y=coarse, boundary='pad').mean()
         ds = ds.chunk({'dtime': 1, 'x':3072, 'y':3072})
 
