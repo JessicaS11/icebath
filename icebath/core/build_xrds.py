@@ -103,16 +103,16 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
 
         # try coarsening the data to 4 m resolution to see if it helps with memory crashes during processing
         coarse = 2
-        print(ds)
+        if coarse > 1:
+            print("Your input DEMs have been downsampled to enable processing")
         ds = ds.coarsen(x=coarse, y=coarse, boundary='pad').mean()
-        print(ds)
+        ds = ds.chunk({'dtime': 1, 'x':3072, 'y':3072})
 
         ds.attrs = attr
         ds.attrs['fjord'] = fjord
         ds.attrs['res'] = tuple(x * coarse for x in attr['res'])
         attr=None
 
-        print(ds)
         # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
         # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
         
