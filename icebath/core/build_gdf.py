@@ -53,7 +53,10 @@ def gdf_of_bergs(onedem, usedask=True):
 
     # process the raster and polygonize the potential icebergs
     poss_bergs = get_poss_bergs_fr_raster(onedem, usedask)
-    # print(len(poss_bergs))
+    print(len(poss_bergs))
+
+    if len(poss_bergs) == 0:
+        return gpd.GeoDataFrame()
 
     # Exclude icebergs that don't meet the requirements
     bergs, elevs, sl_adjs = filter_pot_bergs(poss_bergs, onedem, usedask)
@@ -241,10 +244,13 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # convert to a geodataframe, combine geometries (in case any bergs were on chunk borders), and generate new polygon list
         # print(poss_bergs_gdf)
         # print(poss_bergs_gdf.geometry.plot())
-        poss_berg_combined = gpd.overlay(poss_bergs_gdf, poss_bergs_gdf, how='union')
-        # print(poss_berg_combined)
-        # print(poss_berg_combined.geometry.plot())
-        poss_bergs = [berg for berg in poss_berg_combined.geometry]
+        if len(poss_bergs_gdf) == 0:
+            return poss_bergs_gdf
+        else:
+            poss_berg_combined = gpd.overlay(poss_bergs_gdf, poss_bergs_gdf, how='union')
+            # print(poss_berg_combined)
+            # print(poss_berg_combined.geometry.plot())
+            poss_bergs = [berg for berg in poss_berg_combined.geometry]
         # print(poss_bergs)
         # print(len(poss_bergs))
 
