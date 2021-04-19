@@ -27,7 +27,6 @@ def run_workflow(indir, fjord, outdir, outfn, metastr=None, bitmask=False):
 
         # print("Going to start getting icebergs")
         gdf = build_gdf.xarray_to_gdf(ds)
-        gdf.groupby('date').berg_poly.plot()
 
         fjord = ds.attrs["fjord"]
         try:
@@ -40,6 +39,7 @@ def run_workflow(indir, fjord, outdir, outfn, metastr=None, bitmask=False):
             pass
         else:
         
+            gdf.groupby('date').berg_poly.plot()
             gdf.berggdf.calc_filt_draft()
             gdf.berggdf.calc_rowwise_medmaxmad('filtered_draft')
             gdf.berggdf.wat_depth_uncert('filtered_draft')

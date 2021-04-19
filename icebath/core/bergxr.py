@@ -381,7 +381,6 @@ class BergXR:
         except KeyError:
             raise AssertionError("You must specify a model path")
         
-
         time, tidal_ht, plots = icalcs.predict_tides(loc, 
                                                     img_time=gb.dtime.values, 
                                                     model_path=model_path, 
@@ -391,8 +390,11 @@ class BergXR:
         vals = [tidal_ht[tidx], np.min(tidal_ht), np.max(tidal_ht)]
 
         gb['elevation'] = gb.elevation + vals[0]
-        gb = gb.assign(tidal_corr = ('dtime', [vals[0]]), 
-                        min_tidal_ht = ('dtime', [vals[1]]), 
-                        max_tidal_ht = ('dtime', [vals[2]]))
+        dtimeones = np.ones(len(gb.dtime.values))
+        gb = gb.assign(
+                        tidal_corr = ('dtime', dtimeones*vals[0]), 
+                        min_tidal_ht = ('dtime', dtimeones*vals[1]), 
+                        max_tidal_ht = ('dtime', dtimeones*vals[2])
+                        )
 
         return gb

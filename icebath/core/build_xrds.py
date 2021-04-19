@@ -100,9 +100,20 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         # convert to dataset with elevation as a variable and add attributes
         attr = darr.attrs
         ds = darr.to_dataset()
+
+        # coarsen the data to 4 m resolution to reduce memory crashes during processing
+        # note that this may be important in later steps when resolution is used as an input
+        coarse = 2
+        if coarse > 1:
+            print("Your input DEMs will be downsampled to enable processing")
+        ds = ds.coarsen(x=coarse, y=coarse, boundary='pad').mean()
+        ds = ds.chunk({'dtime': 1, 'x':3072, 'y':3072})
+
         ds.attrs = attr
         ds.attrs['fjord'] = fjord
+        ds.attrs['res'] = tuple(x * coarse for x in attr['res'])
         attr=None
+
         # newest version of xarray (0.16) has promote_attrs=True kwarg. Earlier versions don't...
         # ds = ds.to_dataset(name='elevation', promote_attrs=True).squeeze().drop('band')
         
@@ -121,7 +132,8 @@ def xrds_from_dir(path=None, fjord=None, metastr='_mdf', bitmask=False):
         # set the transform and crs as attributes since that's how they're accessed later in the pipeline
         # ds.attrs['transform'] = (ds.spatial_ref.GeoTransform)
         # ds.attrs['crs'] = ds.spatial_ref.crs_wkt
-        
+
+
         return ds
 
 
