@@ -254,6 +254,17 @@ class BergGDF:
             src_fl = [src_fl]
         
         exbounds = bgdf.get_needed_extent(src_fl[0], self._gdf.total_bounds)
+        
+        # edge case: only one iceberg, and it would be one pixel in the dataset
+        # check to make sure that multiple pixels of the netcdf will be obtained
+        if (exbounds[0] == exbounds[2]) or (exbounds[1] == exbounds[3]):
+            bigger_ext = self._gdf.total_bounds
+            bigger_ext[0] = bigger_ext[0] - 150 #arbitrary number
+            bigger_ext[1] = bigger_ext[1] - 150
+            bigger_ext[2] = bigger_ext[2] + 150
+            bigger_ext[3] = bigger_ext[3] + 150
+            exbounds = bgdf.get_needed_extent(src_fl[0], bigger_ext)
+
         measds = build_xrds.read_netcdfs(src_fl, exbounds).chunk({'x':2048, 'y':2048})
         measds = measds.squeeze(drop=True)
         
@@ -262,6 +273,7 @@ class BergGDF:
             self._gdf["geometry"] = self._gdf.berg_poly
         except AttributeError:
             pass
+
         from functools import partial
         from geocube.rasterize import rasterize_image
         gdf_grid = make_geocube(vector_data=self._gdf,

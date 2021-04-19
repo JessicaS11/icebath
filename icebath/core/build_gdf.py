@@ -29,11 +29,16 @@ def xarray_to_gdf(ds):
 
     for num in range(0, len(ds['dtime'])):
         temp_berg_df = gdf_of_bergs(ds.isel({'dtime':num}))
-        berg_gdf = berg_gdf.append(temp_berg_df, ignore_index=True)
-
-    berg_gdf.crs = ds.attrs['crs']
-    berg_gdf.sl_adjust.attrs['note'] = "sea level adjustment is relative to tidal height, not 0msl"
-    berg_gdf.sl_adjust.attrs['units'] = "meters"
+        berg_gdf = berg_gdf.append(temp_berg_df, ignore_index=True) 
+    
+    # print(berg_gdf)
+    # print(len(berg_gdf))
+    try:
+        berg_gdf.crs = ds.attrs['crs']
+        berg_gdf.sl_adjust.attrs['note'] = "sea level adjustment is relative to tidal height, not 0msl"
+        berg_gdf.sl_adjust.attrs['units'] = "meters"
+    except AttributeError:
+        pass
 
     return berg_gdf
 
@@ -128,7 +133,11 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         # import matplotlib.pyplot as plt
         # print(plt.imshow(elev_copy))
 
-        elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
+        try:
+            elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
+        except ValueError:
+            elev_copy = elev_copy.rechunk(onedem.chunks['x'][0]+1024)
+            elev_overlap = da.overlap.overlap(elev_copy, depth=10, boundary='nearest')
         seglabeled_overlap = da.map_overlap(seg_wrapper, elev_overlap, trim=False) # including depth=10 here will ADD another overlap
         labeled_overlap = da.map_overlap(filter_wrapper, seglabeled_overlap, elev_overlap, trim=False, dtype='int32')
         print("Got labeled raster of potential icebergs for an image")
@@ -286,8 +295,9 @@ def get_poss_bergs_fr_raster(onedem, usedask):
         print(plt.imshow(labeled_arr))
         # create iceberg polygons
         # somehow a < 1 pixel berg made it into this list... I'm doing a secondary filtering by area in the iceberg filter step for now
-        poss_bergs = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=onedem.attrs['transform']))[:-1]
+        poss_bergs_list = list(poly[0]['coordinates'][0] for poly in rasterio.features.shapes(labeled_arr, transform=onedem.attrs['transform']))[:-1]
   
+        poss_bergs = [Polygon(poly) for poly in poss_bergs_list]
         try:
             del elev_copy
             del seglabeled_arr
@@ -328,10 +338,18 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
             print("Your input DEM does not have a CRS attribute")
 
 
-    poss_gdf = gpd.GeoDataFrame({'origberg': [Polygon(berg) for berg in poss_bergs]}, geometry='origberg')
+    # for berg in poss_bergs:
+    #     try: hold = Polygon(berg)
+    #     except NotImplementedError:
+    #         print(berg)
+        
+    # Note: list of poss_bergs must be a list of shapely geometry types
+    # the previous version, which used Polygon(berg) for berg in poss_bergs in the next line,
+    # was a problem when a multipolygon got created after combining results from dask chunks
+    poss_gdf = gpd.GeoDataFrame({'origberg': poss_bergs}, geometry='origberg')
     poss_gdf = poss_gdf.set_crs(crs)
     print("Potential icebergs found: " + str(len(poss_gdf)))
-    if len(poss_bergs) == 0:
+    if len(poss_gdf) == 0:
         return [], [], []
 
     # remove empty or invalid geometries
@@ -385,7 +403,7 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
         print("using a default complexity threshold value - add one for your resolution")
     poss_gdf = poss_gdf[poss_gdf.complexity < complexthresh]
     print("Potential icebergs after complex ones removed: " + str(len(poss_gdf)))
-    if len(poss_bergs) == 0:
+    if len(poss_gdf)  == 0:
         return [], [], []
     poss_gdf = poss_gdf.reset_index().drop(columns=["index", "complexity"])
 
@@ -429,7 +447,7 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
     # skip bergs that likely contain a lot of cloud (or otherwise unrealistic elevation) pixels
     poss_gdf = poss_gdf[poss_gdf['freeboardmed'] < max_freebd] # units in meters, matching those of the DEM elevation
     print("Potential icebergs after too-tall ones removed: " + str(len(poss_gdf)))
-    if len(poss_bergs) == 0:
+    if len(poss_gdf) == 0:
         return [], [], []
     # print(poss_gdf)
 
@@ -451,14 +469,20 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
         Clip the polygon from the elevation DEM and get the pixel values.
         Compute the sea level offset
         """
-        slvals = onedem.elevation.rio.clip([sl_aroundberg], crs=onedem.attrs['crs']).values.flatten() #from_disk=True
-
-        # try:
-        #     vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs']).values.flatten()
-        # except NoDataInBounds:
-        #     if berg.area < (res**2.0) * 10.0:
-        #         continue
-        #     # vals = berg_dem.rio.clip([berg], crs=onedem.attrs['crs'], all_touched=True).values.flatten()
+        try:
+            slvals = onedem.elevation.rio.clip([sl_aroundberg], crs=onedem.attrs['crs']).values.flatten() #from_disk=True
+        except NoDataInBounds:
+            if sl_aroundberg.area < (res**2.0) * 10.0:
+                slvals = []
+            else:
+                try:
+                    slvals = onedem.elevation.rio.clip([sl_aroundberg], crs=onedem.attrs['crs'], all_touched=True).values.flatten()
+                except NoDataInBounds:
+                    print("Manually check this DEM for usability")
+                    print(sl_aroundberg.area)
+                    print((res**2.0) * 10.0)
+                    print(onedem.elevation.rio.bounds(recalc=True))
+                    print(sl_aroundberg.bounds)
 
         sl_adj = np.nanmedian(slvals)
         return sl_adj
@@ -471,7 +495,7 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
     # check that the median freeboard elevation (pre-filtering) is at least x m above sea level
     poss_gdf = poss_gdf[abs(poss_gdf.freeboardmed - poss_gdf.sl_adj) > minfree]
     print("Potential icebergs after too small ones removed: " + str(len(poss_gdf)))
-    if len(poss_bergs) == 0:
+    if len(poss_gdf) == 0:
         return [], [], []
     
     # apply the sea level adjustment to the elevation values
