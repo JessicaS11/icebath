@@ -414,7 +414,7 @@ def filter_pot_bergs(poss_bergs, onedem, usedask):
         exbound_box = []
         for a, b in zip(total_bounds, coords):
             exbound_box.append(getexval(onedem[b], b, a))
-        onedem = onedem['elevation'].rio.slice_xy(*exbound_box)
+        onedem = onedem.rio.slice_xy(*exbound_box)
     # onedem = onedem.chunk({'x': 1024, 'y':1024})
     # onedem = onedem.rio.clip_box(*total_bounds).chunk({'x': 1024, 'y':1024})
 
