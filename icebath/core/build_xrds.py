@@ -372,4 +372,5 @@ def read_netcdfs(files, extent):
 
     datasets = [process_one_path(p, extent) for p in files]
     combined = xr.merge(datasets, combine_attrs="no_conflicts")#, dim, join="exact")
+    combined = combined.drop("spatial_ref") #until the spatial ref actually is correct
     return combined
