@@ -2,10 +2,13 @@ icebath
 =======
 Tools for inferring bathymetry using icebergs as depth sounders
 
- |GitHub license|
+ |GitHub license| |Zenodo Citation|
 
 .. |GitHub license| image:: https://img.shields.io/badge/License-BSD%203--Clause-blue.svg
    :target: https://opensource.org/licenses/BSD-3-Clause
+
+.. |Zenodo Citation| image:: https://zenodo.org/badge/DOI/10.5281/zenodo.5006755.svg
+   :target: https://doi.org/10.5281/zenodo.5006755
 
 Licensing
 ---------
